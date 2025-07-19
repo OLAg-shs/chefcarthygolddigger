@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Chef Carthy AI Trading Bot</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" integrity="sha512-SnH5WK+bZxgPHs44uWIX+LLJAJ9/2PkPKZ5QiAj6Ta86w+fsb2TkcmfRyVX3pBnMFcV7oQPJkl9QevSCWr3W6A==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Orbitron:wght@500;700&display=swap">
+    <style>
+        :root {
+            --bg-dark: #12121e; /* Deep dark blue-purple */
+            --bg-card: #1f1f3a; /* Slightly lighter card background */
+            --text-light: #e0e0e0;
+            --text-secondary: #a0a0b0;
+            --primary-accent: #00e5ff; /* Cyan for highlights */
+            --primary-hover: #00b3cc;
+            --button-bg: #4a4a8a; /* Darker blue for buttons */
+            --button-hover: #5a5a9a;
+            --border-color: #333355;
+            --error-color: #ff6b6b;
+            --link-color: #00e5ff;
+            --link-hover: #00b3cc;
+        }
+
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh; /* Ensures it takes full viewport height */
+            overflow: hidden; /* Hide scrollbar if content is centered */
+        }
+
+        .login-container {
+            background: var(--bg-card);
+            padding: 40px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            text-align: center;
+            width: 100%;
+            max-width: 400px; /* Limit width for better appearance */
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+        }
+
+        .login-container h2 {
+            font-family: 'Orbitron', sans-serif;
+            color: var(--primary-accent);
+            margin-bottom: 30px;
+            font-size: 2em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            text-shadow: 0 0 8px rgba(0,229,255,0.4);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left; /* Align labels left */
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--primary-accent);
+            font-weight: 500;
+        }
+
+        .form-group input {
+            width: calc(100% - 28px); /* Account for padding and border */
+            padding: 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #2a2a47; /* Darker input background */
+            color: var(--text-light);
+            font-size: 1rem;
+            transition: border-color 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .form-group input:focus {
+            border-color: var(--primary-accent);
+            box-shadow: 0 0 0 4px rgba(0,229,255,0.2);
+            outline: none;
+        }
+
+        button {
+            background-color: var(--button-bg);
+            color: var(--text-light);
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            font-weight: 600;
+            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            width: 100%; /* Make button full width */
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        button:hover {
+            background-color: var(--button-hover);
+            transform: translateY(-3px);
+            box-shadow: 0 6px 15px rgba(0,0,0,0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        .error {
+            color: var(--error-color);
+            margin-bottom: 20px;
+            font-weight: 500;
+            background-color: rgba(255,107,107,0.1);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid var(--error-color);
+            font-size: 0.95em;
+        }
+
+        .register-link {
+            margin-top: 25px;
+            font-size: 0.95em;
+            color: var(--text-secondary);
+        }
+
+        .register-link a {
+            color: var(--link-color);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s ease;
+        }
+
+        .register-link a:hover {
+            color: var(--link-hover);
+            text-decoration: underline;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 600px) {
+            .login-container {
+                margin: 20px;
+                padding: 30px 20px;
+            }
+            .login-container h2 {
+                font-size: 1.8em;
+            }
+            button {
+                padding: 12px 20px;
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <h2><i class="fas fa-hat-chef"></i> Chef Carthy</h2>
+        <form method="POST">
+            {% if error %}
+                <p class="error">{{ error }}</p>
+            {% endif %}
+            <div class="form-group">
+                <label for="username"><i class="fas fa-user"></i> Username:</label>
+                <input type="text" id="username" name="username" placeholder="Enter your username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label for="password"><i class="fas fa-lock"></i> Password:</label>
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
+            </div>
+            <button type="submit"><i class="fas fa-sign-in-alt"></i> Login</button>
+        </form>
+        <p class="register-link">Don't have an account? <a href="/register">Register here</a></p>
+    </div>
+</body>
+</html>

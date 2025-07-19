@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <style>
+        body {
+            background: #0e1013;
+            color: #fff;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        .container {
+            background: #1c1f26;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+
+        h2 {
+            color: #00e5ff;
+            margin-bottom: 20px;
+        }
+
+        ul {
+            list-style-type: none;
+            padding: 0;
+        }
+
+        li {
+            background: #2a2e35;
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 6px;
+        }
+
+        form {
+            margin-top: 20px;
+        }
+
+        input {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 6px;
+            border: none;
+        }
+
+        button {
+            background: #00e5ff;
+            color: #000;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .error {
+            color: #ff4d4d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Admin Dashboard</h2>
+        <h3>Users:</h3>
+        <ul>
+            {% for user in users %}
+                <li>{{ user.username }} - {{ user.email }}</li>
+            {% endfor %}
+        </ul>
+
+        <h3>Add New User:</h3>
+        <form method="POST" action="/admin/add_user">
+            <label>Username:</label><br>
+            <input type="text" name="username" required><br><br>
+            <label>Password:</label><br>
+            <input type="password" name="password" required><br><br>
+            <label>Email:</label><br>
+            <input type="email" name="email"><br><br>
+            <button type="submit">Add User</button>
+        </form>
+
+        <h3>Remove User:</h3>
+        <form method="POST" action="/admin/remove_user">
+            <label>Username:</label><br>
+            <input type="text" name="username" required><br><br>
+            <button type="submit">Remove User</button>
+        </form>
+
+        <a href="/logout">Logout</a>
+    </div>
+</body>
+</html>
