@@ -1,3 +1,14 @@
+# Ignore virtual environment directories
+venv/
+__pycache__/
+
+# Ignore environment variables file
+.env
+
+# Ignore IDE-specific files
+.vscode/
+.idea/
+
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from dotenv import load_dotenv
@@ -12,7 +23,7 @@ import matplotlib.pyplot as plt
 from utils.trading_bot import run_analysis
 
 # Load environment variables
-load_dotenv()
+load_dotenv(".env")
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", "defaultsecret")
