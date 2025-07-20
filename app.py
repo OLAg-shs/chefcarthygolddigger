@@ -1,13 +1,4 @@
-# Ignore virtual environment directories
-venv/
-__pycache__/
-
-# Ignore environment variables file
-.env
-
-# Ignore IDE-specific files
-.vscode/
-.idea/
+# app.py
 
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
@@ -17,10 +8,15 @@ import matplotlib
 matplotlib.use('Agg')  # Use non-GUI backend for servers
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-from models import db, User
+from models import db, User # Assuming 'models.py' exists and defines 'db' and 'User'
 
 import matplotlib.pyplot as plt
-from utils.trading_bot import run_analysis
+# from utils.trading_bot import run_analysis # Uncomment this if you have utils/trading_bot.py
+# If you don't have utils/trading_bot.py, you'll need to define a dummy run_analysis function
+def run_analysis():
+    """Dummy function for AI trading analysis if utils.trading_bot is not available."""
+    return "This is a dummy AI insight. Implement your actual trading logic here!"
+
 
 # Load environment variables
 load_dotenv(".env")
@@ -71,7 +67,7 @@ def login():
             return redirect(url_for("dashboard"))
 
         user = User.query.filter_by(username=username).first()
-        if user and user.password == password:
+        if user and user.password == password: # In a real app, you'd hash passwords
             login_user(user)
             return redirect(url_for("dashboard"))
 
@@ -108,28 +104,33 @@ def dashboard():
 @app.route("/admin/add_user", methods=["POST"])
 @login_required
 def add_user():
-    if current_user.username != os.getenv("ADMIN_USER"):  # Check if the user is the admin
-        return "You are not authorized to perform this action.", 403
+    # In a real app, you'd also check if the current_user is an admin based on a role in the DB
+    if current_user.username != os.getenv("ADMIN_USER"):
+        flash("You are not authorized to perform this action.", "error")
+        return redirect(url_for("dashboard"))
 
     username = request.form.get("username")
-    password = request.form.get("password")
+    password = request.form.get("password") # In a real app, hash this password!
     email = request.form.get("email")
 
     existing_user = User.query.filter_by(username=username).first()
     if existing_user:
-        return render_template("dashboard.html", error="Username already exists. Please choose a different one.", users=User.query.all())
+        flash("Username already exists. Please choose a different one.", "error")
+        return redirect(url_for("dashboard"))
 
     new_user = User(username=username, password=password, email=email)
     db.session.add(new_user)
     db.session.commit()
-
+    flash("User added successfully.", "success")
     return redirect(url_for("dashboard"))
 
 @app.route("/admin/remove_user", methods=["POST"])
 @login_required
 def remove_user():
-    if current_user.username != os.getenv("ADMIN_USER"):  # Check if the user is the admin
-        return "You are not authorized to perform this action.", 403
+    # In a real app, you'd also check if the current_user is an admin based on a role in the DB
+    if current_user.username != os.getenv("ADMIN_USER"):
+        flash("You are not authorized to perform this action.", "error")
+        return redirect(url_for("dashboard"))
 
     username = request.form.get("username")
     user = User.query.filter_by(username=username).first()
@@ -155,26 +156,27 @@ def start_bot():
 
     return redirect(url_for("dashboard"))
 
+@app.route("/refresh_data", methods=["GET"])
+@login_required
+def refresh_data():
+    # This route can be used to trigger a refresh of the dashboard data
+    # without running the bot, useful for the "Refresh Data" button
+    generate_dummy_profit() # Re-generate profit data
+    # No need to re-run AI analysis here unless specifically desired
+    return redirect(url_for("dashboard"))
+
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
         username = request.form.get("username")
-        password = request.form.get("password")
+        password = request.form.get("password") # In a real app, hash this password!
         email = request.form.get("email")
 
-        admin_user = os.getenv("ADMIN_USER")
-        admin_pwd = os.getenv("ADMIN_PWD")
-
-        if username == admin_user and password == admin_pwd:
-            # Check if admin user exists in the database
-            user = User.query.filter_by(username=admin_user).first()
-            if not user:
-                # Create admin user if it doesn't exist
-                user = User(username=admin_user, password=admin_pwd, email="admin@example.com")
-                db.session.add(user)
-                db.session.commit()
-            login_user(user)
-            return redirect(url_for("dashboard"))
+        # Prevent admin from being registered via this public route
+        if username == os.getenv("ADMIN_USER"):
+            flash("Cannot register as admin via this route.", "error")
+            return render_template("register.html", error="Cannot register as admin via this route.")
 
         existing_user = User.query.filter_by(username=username).first()
         if existing_user:
@@ -191,10 +193,11 @@ def register():
 @login_required
 def logout():
     logout_user()
+    flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
 with app.app_context():
-    db.create_all()
+    db.create_all() # This creates tables based on your models.py
 
 if __name__ == "__main__":
     os.makedirs("static", exist_ok=True)
