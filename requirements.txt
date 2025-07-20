@@ -10,3 +10,4 @@ schedule
 email-validator
 gunicorn
 SQLAlchemy
+Flask-SQLAlchemy
