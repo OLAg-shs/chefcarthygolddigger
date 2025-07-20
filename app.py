@@ -11,11 +11,11 @@ from flask_login import LoginManager, UserMixin, login_user, login_required, log
 from models import db, User # Assuming 'models.py' exists and defines 'db' and 'User'
 
 import matplotlib.pyplot as plt
-# from utils.trading_bot import run_analysis # Uncomment this if you have utils/trading_bot.py
-# If you don't have utils/trading_bot.py, you'll need to define a dummy run_analysis function
-def run_analysis():
-    """Dummy function for AI trading analysis if utils.trading_bot is not available."""
-    return "This is a dummy AI insight. Implement your actual trading logic here!"
+# CORRECT: Import the actual run_analysis from your utils/trading_bot.py
+from utils.trading_bot import run_analysis 
+
+# REMOVED: The dummy run_analysis function that was here.
+# It should now ONLY be defined in utils/trading_bot.py
 
 
 # Load environment variables
@@ -39,7 +39,7 @@ ADMIN_PWD = os.getenv("ADMIN_PWD")
 
 # Global variables
 profit_log = []
-latest_insight = ""
+latest_insight = "" # This will now be populated by the real run_analysis
 
 def generate_dummy_profit():
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -148,7 +148,8 @@ def remove_user():
 def start_bot():
     global latest_insight
     try:
-        insight = run_analysis()
+        # This will now call the run_analysis from utils/trading_bot.py
+        insight = run_analysis() 
         latest_insight = "🧠 AI Trading Insight:\n\n" + insight
     except Exception as e:
         latest_insight = f"❌ Bot failed: {str(e)}"
