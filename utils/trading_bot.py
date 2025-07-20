@@ -10,6 +10,7 @@ import requests
 import ta
 from dotenv import load_dotenv
 from groq import Groq
+import json # Import json for detailed error printing
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,56 +23,95 @@ client = Groq(api_key=GROQ_API_KEY)
 def fetch_price():
     """Fetches XAU/USD (Gold) 1-hour price data from Twelve Data API."""
     if not TWELVE_API_KEY:
-        print("Warning: TWELVE_API_KEY is not set in environment variables.")
-        return pd.DataFrame() # Return empty DataFrame if key is missing
+        print("Error: TWELVE_API_KEY is not set in environment variables.")
+        # Returning a clear error message that the higher-level function can display
+        return None # Indicate a critical failure to fetch data
 
-    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1h&apikey={TWELVE_API_KEY}&outputsize=100" # Request more data points for indicators
+    # Changed outputsize to a more reasonable number for free tier and indicator calculation
+    # 200 is generally sufficient for common indicators like EMA50/200, RSI, MACD
+    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1h&apikey={TWELVE_API_KEY}&outputsize=200"
     
     try:
-        response = requests.get(url, timeout=10) # Add a timeout
+        # Increased timeout slightly for potentially larger data fetch
+        response = requests.get(url, timeout=15)
         response.raise_for_status() # Raise an HTTPError for bad responses (4xx or 5xx)
         data = response.json()
 
+        # More robust check for 'values' and potential API error messages
         if 'values' not in data or not data['values']:
-            print(f"Error fetching data or no values returned: {data.get('message', 'No values key in response')}")
-            return pd.DataFrame() # Return empty DataFrame on error
+            error_message = data.get('message', 'No specific error message provided by API.')
+            print(f"Error: Twelve Data API returned no values or an error. Response: {json.dumps(data, indent=2)}")
+            print(f"API Message: {error_message}")
+            return None # Indicate failure to fetch valid data
 
         df = pd.DataFrame(data['values'])
         df['datetime'] = pd.to_datetime(df['datetime'])
         df.set_index('datetime', inplace=True)
         
-        # Convert numeric columns to float, coercing errors to NaN
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            df[col] = pd.to_numeric(df[col], errors='coerce')
-        df = df.dropna().sort_index() # Drop rows with NaN values that resulted from coercion
+        # Define the columns we expect and want to convert to numeric
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        
+        # Iterate only over columns that actually exist in the DataFrame
+        for col in numeric_cols:
+            if col in df.columns: # Check if the column exists before trying to convert
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+            else:
+                print(f"Warning: Column '{col}' not found in fetched data. It will be skipped.")
+                # If 'volume' is missing, it will now simply be skipped and not cause a crash.
+                # The prompt generator might show 'N/A' for volume if it's missing.
+
+        # Drop rows with NaN values (from coercion or incomplete data) and sort
+        df = df.dropna().sort_index() 
         
         if df.empty:
-            print("Fetched an empty DataFrame after processing.")
+            print("Fetched an empty DataFrame after processing (e.g., all data was NaN).")
+            return None # Indicate failure to get usable data
+
+        # Check if enough data is available after all cleaning for indicator calculation
+        # Most indicators need at least 26 (for EMA26/MACD) or 50 (for EMA50) periods.
+        # Ensure sufficient data for reliable indicator calculation and analysis
+        if len(df) < 50: 
+            print(f"Warning: Fetched only {len(df)} data points, which might be insufficient for all indicators.")
+            # Still return df, but the calling function might handle this if it's too few
+
         return df
+    
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP Error fetching market data ({e.response.status_code}): {e.response.text}")
+        if e.response.status_code == 429:
+            print("This is a Rate Limit error. You've made too many requests. Please wait a minute or check your Twelve Data plan limits.")
+        return None
+    except requests.exceptions.ConnectionError as e:
+        print(f"Network Connection Error fetching market data: {e}. Check your internet connection.")
+        return None
     except requests.exceptions.Timeout:
-        print("Error: The request to Twelve Data API timed out.")
-        return pd.DataFrame()
+        print("Error: The request to Twelve Data API timed out (took too long).")
+        return None
     except requests.exceptions.RequestException as e:
-        print(f"Network or API request error: {e}")
-        return pd.DataFrame()
-    except ValueError as e:
-        print(f"JSON decoding error or data processing error: {e}")
-        return pd.DataFrame()
+        print(f"An unexpected Request Error occurred: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: Could not parse API response. {e}")
+        # Print the raw response content to help debug malformed JSON
+        print(f"Problematic response content: {response.text[:500]}...") # Print first 500 chars
+        return None
     except Exception as e:
-        print(f"An unexpected error occurred during data fetching: {e}")
-        return pd.DataFrame()
+        print(f"An unknown error occurred during data fetching: {e}")
+        return None
 
 
 def add_indicators(df):
     """Adds various professional technical indicators to the DataFrame."""
-    if df.empty or 'close' not in df.columns or len(df) < 50: # Ensure enough data for indicators
-        print(f"DataFrame is empty or has insufficient data ({len(df)} rows) for reliable indicator calculation.")
-        return df
+    # Adjusted minimum length check to be consistent with fetch_price's warning
+    if df is None or df.empty or 'close' not in df.columns or len(df) < 50: 
+        print(f"DataFrame is empty or has insufficient data ({len(df) if df is not None else 0} rows) for reliable indicator calculation.")
+        return pd.DataFrame() # Return empty DataFrame if cannot calculate indicators
 
     # Ensure float type before calculation to prevent errors
-    df['close'] = df['close'].astype(float) 
-    df['high'] = df['high'].astype(float)
-    df['low'] = df['low'].astype(float)
+    # Check if column exists before trying to convert
+    for col in ['open', 'high', 'low', 'close']: # 'volume' is handled in fetch_price more robustly if it's missing entirely
+        if col in df.columns:
+            df[col] = df[col].astype(float) 
 
     # 1. Momentum Indicators
     df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi() # Standard 14-period RSI
@@ -97,7 +137,13 @@ def add_indicators(df):
     df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14).average_true_range() # Standard 14-period ATR
 
     # Drop any rows that now have NaN due to indicator calculation (e.g., first few rows)
+    # Ensure at least one row remains after dropna for 'latest' access in generate_prompt
     df = df.dropna() 
+    
+    if df.empty:
+        print("DataFrame became empty after dropping NaNs from indicator calculation.")
+        return pd.DataFrame()
+        
     return df
 
 def generate_chart(df):
@@ -132,52 +178,60 @@ def generate_prompt(df):
 
     latest = df.iloc[-1]
     
-    # Helper to safely get indicator values
+    # Helper to safely get indicator values, ensuring formatting and handling of missing data
     def get_indicator_val(key):
-        return f"{latest[key]:.2f}" if key in latest and pd.notna(latest[key]) else "N/A"
+        if key in latest and pd.notna(latest[key]):
+            # Format volume as integer if it's available and numeric, otherwise float
+            if key == 'volume':
+                return f"{int(latest[key]):,}" if latest[key] == int(latest[key]) else f"{latest[key]:,.0f}"
+            return f"{latest[key]:.2f}"
+        return "N/A"
 
     prompt_details = f"""
     - **Current Price**: {get_indicator_val('close')}
-    - **RSI (14)**: {get_indicator_val('rsi')} (Overbought >70, Oversold <30)
-    - **Stochastic Oscillator (%K, %D)**: {get_indicator_val('stoch_k')}, {get_indicator_val('stoch_d')} (Overbought >80, Oversold <20)
+    - **RSI (14)**: {get_indicator_val('rsi')} (Overbought >70, Oversold <30, Mid-range 30-70)
+    - **Stochastic Oscillator (%K, %D)**: {get_indicator_val('stoch_k')}, {get_indicator_val('stoch_d')} (Overbought >80, Oversold <20, Crossover signals)
     - **MACD Line**: {get_indicator_val('macd')}
     - **MACD Signal Line**: {get_indicator_val('macd_signal')}
-    - **MACD Histogram**: {get_indicator_val('macd_diff')}
-    - **EMA 12**: {get_indicator_val('ema12')}
-    - **EMA 26**: {get_indicator_val('ema26')}
-    - **EMA 50**: {get_indicator_val('ema50')}
-    - **Bollinger Bands (Upper, Middle, Lower)**: {get_indicator_val('bb_high')}, {get_indicator_val('bb_mid')}, {get_indicator_val('bb_low')}
-    - **Average True Range (ATR 14)**: {get_indicator_val('atr')} (Measure of volatility)
-    - **Volume**: {get_indicator_val('volume')}
+    - **MACD Histogram**: {get_indicator_val('macd_diff')} (Momentum: above zero and rising = bullish, below zero and falling = bearish)
+    - **EMA 12**: {get_indicator_val('ema12')} (Short-term trend)
+    - **EMA 26**: {get_indicator_val('ema26')} (Medium-term trend)
+    - **EMA 50**: {get_indicator_val('ema50')} (Longer-term trend)
+    - **Bollinger Bands (Upper, Middle, Lower)**: U:{get_indicator_val('bb_high')}, M:{get_indicator_val('bb_mid')}, L:{get_indicator_val('bb_low')} (Volatility & potential reversal points)
+    - **Average True Range (ATR 14)**: {get_indicator_val('atr')} (Measure of volatility, useful for stop loss placement)
+    - **Volume**: {get_indicator_val('volume')} (Confirmation of price moves)
     """
 
     return f"""
     You are Chef Carthy, an **elite, highly experienced, and conservative institutional forex trading analyst** specializing in XAU/USD (Gold) using technical analysis. Your primary goal is to provide **actionable, clear, and profitable trading recommendations** for a 1-hour time frame based on the provided data, considering a risk-averse approach.
 
-    **Current 1-Hour Chart Data for XAU/USD:**
+    **Current 1-Hour Chart Data for XAU/USD (Gold):**
     {prompt_details}
 
-    **Based on this data, perform a professional analysis using price action, indicator confluence, and prudent risk management. Provide your output in the following structured format, ensuring all recommendations are specific price levels and explanations are beginner-friendly:**
+    **Based on this comprehensive data, perform a professional analysis. Your output must be highly detailed, explain your reasoning by explicitly referencing the NUMERICAL VALUES of the indicators, their significance, and how they show confluence. Provide your output in the following structured format, ensuring all recommendations are specific price levels and explanations are beginner-friendly yet technically sound.**
 
     ---
     ### 📈 Market Analysis & Trend Prediction
-    * **Current Market Outlook**: Describe the current market sentiment (e.g., strong bullish, bearish correction, sideways consolidation) and its driving factors based on the indicators.
-    * **Short-Term Trend (next 1-4 hours)**: State the predicted trend (e.g., Uptrend, Downtrend, Sideways) and the primary reasons (e.g., EMA crossovers, RSI position, MACD momentum).
-    * **Mid-Term Trend (next 1-3 days)**: State the predicted trend, considering broader movements and EMA50.
+
+    * **Current Market Outlook**: Describe the current market sentiment and its driving factors. **Explicitly analyze the confluence of at least three key indicators by citing their current numerical values and what they individually imply (e.g., "RSI is {get_indicator_val('rsi')}, indicating [overbought/oversold/neutral] conditions; concurrently, MACD Line is at {get_indicator_val('macd')} crossing [above/below] its Signal Line at {get_indicator_val('macd_signal')}, suggesting [momentum shift/continuation]; price at {get_indicator_val('close')} is positioned [above/below/at] the EMA 26 at {get_indicator_val('ema26')}, confirming [bullish/bearish/sideways] sentiment.").**
+    * **Short-Term Trend (next 1-4 hours)**: State the predicted trend (Uptrend, Downtrend, Sideways). **Justify your prediction by detailing the interaction of short-term EMAs (EMA 12 at {get_indicator_val('ema12')}, EMA 26 at {get_indicator_val('ema26')}), price action relative to these EMAs, and momentum indicators like MACD ({get_indicator_val('macd_diff')} for histogram) and Stochastic ({get_indicator_val('stoch_k')}, {get_indicator_val('stoch_d')}).**
+    * **Mid-Term Trend (next 1-3 days)**: State the predicted trend. **Analyze the broader market context using EMA 50 ({get_indicator_val('ema50')}) and Bollinger Bands (Middle Band at {get_indicator_val('bb_mid')}), explaining how current price action and indicator values support this mid-term view.**
 
     ---
     ### 📊 Trading Strategy & Actionable Plan
-    * **Recommended Bias**: (BUY / SELL / HOLD - choose one)
-    * **Entry Price (Target)**: [Specific Price e.g., $2350.50] - State the exact price where a trade should ideally be entered. Explain *why* this is a good entry point (e.g., retest of support, breakout confirmation, indicator signal).
-    * **Stop Loss (Mandatory)**: [Specific Price e.g., $2345.00] - State the exact price where the trade should be closed to limit losses. Explain *why* this level is chosen (e.g., below key support, outside volatility range).
-    * **Take Profit Target 1**: [Specific Price e.g., $2365.00] - State the exact price for the first profit target. Explain *why* this level is chosen (e.g., previous resistance, 1:2 risk-reward).
-    * **Take Profit Target 2 (Optional)**: [Specific Price e.g., $2380.00] - State the exact price for a second, more ambitious profit target if conditions allow.
+
+    * **Recommended Bias**: (BUY / SELL / HOLD - **choose one and justify based on your analysis**).
+    * **Entry Price (Target)**: [Specific Price e.g., $2350.50] - State the exact price for ideal entry. **Explain *why* this specific price is chosen, linking it to direct technical levels (e.g., "Entry at [Price] near the EMA 12 at {get_indicator_val('ema12')}," or "retest of the lower Bollinger Band at {get_indicator_val('bb_low')}").**
+    * **Stop Loss (Mandatory)**: [Specific Price e.g., $2345.00] - State the exact price for limiting losses. **Explain *why* this level is chosen by calculating it relative to the current ATR ({get_indicator_val('atr')}) or placing it logically beyond a key support/resistance level (e.g., "Placed below the EMA 50 at {get_indicator_val('ema50')} to protect against a trend reversal," or "a multiple of ATR away from entry").**
+    * **Take Profit Target 1**: [Specific Price e.g., $2365.00] - State the exact price for the first profit target. **Explain *why* this level is chosen, linking it to previous resistance, a Bollinger Band ({get_indicator_val('bb_high')}), or a favorable risk-reward ratio (e.g., "Targeting the upper Bollinger Band at {get_indicator_val('bb_high')}").**
+    * **Take Profit Target 2 (Optional)**: [Specific Price e.g., $2380.00] - State the exact price for a second, more ambitious target. **Justify this by potential trend extension or next major resistance.**
 
     ---
-    ### 🎓 Key Insights & Beginner-Friendly Explanation
-    * **Why this Trade?**: Break down the core reasons for the recommended bias and entry point in simple, clear terms, referencing the indicators you used. For example, "The RSI is oversold, suggesting a potential bounce," or "Price is testing a strong support level, making it a good area for buyers."
-    * **Understanding Risk Management**: Emphasize the importance of the Stop Loss and never trading without one. Explain how the Stop Loss helps protect capital.
-    * **Final Precaution**: A brief disclaimer about market volatility and the importance of continuous learning.
+    ### 📈 Summary & Final Prediction
+
+    * **Overall Market Summary**: Provide a concise summary of the current market state and your primary conclusion. Reiterate the key indicator signals that drive your recommendation.
+    * **Final Prediction & Confidence**: Based on all the analysis, state your final prediction for XAU/USD in the near term (next 1-4 hours) and mid-term (next 1-3 days). Express a level of confidence (e.g., "High Confidence," "Moderate Confidence").
+    * **Important Considerations for Traders**: Reiterate the importance of risk management (stop loss), emotional discipline, and adapting to new market data.
 
     ---
     """
@@ -192,8 +246,8 @@ def run_analysis():
     print("Starting professional trading analysis...")
     df = fetch_price()
     
-    if df.empty:
-        return "❌ Error: Could not fetch sufficient market data for analysis. Please check API keys and network connection."
+    if df is None or df.empty: # Check for None or empty DataFrame from fetch_price
+        return "❌ Error: Could not fetch sufficient market data for analysis. Please check API keys, network connection, or Twelve Data limits."
     
     df = add_indicators(df)
     
