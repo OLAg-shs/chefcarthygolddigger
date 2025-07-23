@@ -1,43 +1,5 @@
-# === Flask Project Structure ===
-#.
-#├── app.py
-#├── .env
-#├── templates/
-#│   ├── login.html
-#│   ├── dashboard.html
-#├── static/
-#│   └── market_chart.png
-#├── utils/
-#│   └── trading_bot.py
-#└── requirements.txt
+# ai_trading_bot.py (Upgraded with Pro-Level Indicator Suite)
 
-# STEP 1: requirements.txt
-# Put this in requirements.txt:
-'''
-flask
-flask-login
-matplotlib
-pandas
-ta
-python-dotenv
-requests
-groq
-schedule
-email-validator
-'''
-
-# STEP 2: .env (sensitive keys)
-# Add your secrets here (already provided by you):
-'''
-GROQ_API_KEY=your-groq-key
-EMAIL_ADDR=you@gmail.com
-EMAIL_PASSWORD=your-app-password
-ADMIN_USER=admin
-ADMIN_PWD=pass123
-FLASK_SECRET=supersecret
-'''
-
-# STEP 3: utils/trading_bot.py (the actual bot logic)
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -49,13 +11,11 @@ from groq import Groq
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-EMAIL_ADDR = os.getenv("EMAIL_ADDR")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-
 client = Groq(api_key=GROQ_API_KEY)
 
+# === 1. Fetch Market Data ===
 def fetch_price():
-    url = "https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1h&apikey=" + os.getenv("TWELVE_API_KEY")
+    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1h&apikey={os.getenv('TWELVE_API_KEY')}"
     data = requests.get(url).json()
     df = pd.DataFrame(data['values'])
     df['datetime'] = pd.to_datetime(df['datetime'])
@@ -63,37 +23,87 @@ def fetch_price():
     df = df.astype(float).sort_index()
     return df
 
+# === 2. Add All Professional Indicators ===
 def add_indicators(df):
-    df['rsi'] = ta.momentum.RSIIndicator(df['close']).rsi()
-    df['macd'] = ta.trend.MACD(df['close']).macd()
-    df['ema12'] = ta.trend.EMAIndicator(df['close'], window=12).ema_indicator()
-    df['ema26'] = ta.trend.EMAIndicator(df['close'], window=26).ema_indicator()
+    # Trend indicators
+    df['ema12'] = ta.trend.ema_indicator(df['close'], window=12)
+    df['ema26'] = ta.trend.ema_indicator(df['close'], window=26)
+    df['ema50'] = ta.trend.ema_indicator(df['close'], window=50)
+    df['ema200'] = ta.trend.ema_indicator(df['close'], window=200)
+    df['sma50'] = ta.trend.sma_indicator(df['close'], window=50)
+    df['sma200'] = ta.trend.sma_indicator(df['close'], window=200)
+
+    # Volatility
     bb = ta.volatility.BollingerBands(df['close'])
     df['bb_high'] = bb.bollinger_hband()
     df['bb_low'] = bb.bollinger_lband()
+    df['bb_middle'] = bb.bollinger_mavg()
+
+    # Momentum
+    df['rsi'] = ta.momentum.rsi(df['close'])
+    df['macd'] = ta.trend.macd(df['close'])
+    df['macd_signal'] = ta.trend.macd_signal(df['close'])
+    df['stoch'] = ta.momentum.stoch(df['high'], df['low'], df['close'])
+
+    # Volume
+    df['obv'] = ta.volume.on_balance_volume(df['close'], df['volume'])
+    df['accdist'] = ta.volume.acc_dist_index(df['high'], df['low'], df['close'], df['volume'])
+
+    # Trend strength
+    adx = ta.trend.adx(df['high'], df['low'], df['close'])
+    df['adx'] = adx
+    df['adx_pos'] = ta.trend.adx_pos(df['high'], df['low'], df['close'])
+    df['adx_neg'] = ta.trend.adx_neg(df['high'], df['low'], df['close'])
+
+    # Aroon
+    df['aroon_up'] = ta.trend.aroon_up(df['close'])
+    df['aroon_down'] = ta.trend.aroon_down(df['close'])
+
     return df
 
+# === 3. Generate Market Chart ===
 def generate_chart(df):
     plt.figure(figsize=(10, 5))
-    df[['close', 'ema12', 'ema26']].plot(ax=plt.gca())
-    plt.title("XAU/USD Price & EMAs")
+    df[['close', 'ema12', 'ema26', 'ema50', 'ema200']].plot(ax=plt.gca())
+    plt.title("XAU/USD Price with EMAs")
     plt.savefig("static/market_chart.png")
     plt.close()
 
+# === 4. Generate Prompt for Groq AI ===
 def generate_prompt(df):
     latest = df.iloc[-1]
     return f"""
-Based on the latest data:
-- Price: {latest['close']:.2f}
-- RSI: {latest['rsi']:.2f}
-- MACD: {latest['macd']:.2f}
-- EMA12: {latest['ema12']:.2f}
-- EMA26: {latest['ema26']:.2f}
-- BB High: {latest['bb_high']:.2f}, BB Low: {latest['bb_low']:.2f}
+You are a professional financial analyst. Here is the latest gold (XAU/USD) data:
 
-Give a complete professional analysis, clear entry, stop loss, take profit, trend prediction, and explain it in beginner-friendly terms.
+Price: {latest['close']:.2f}
+
+Trend:
+- EMA12: {latest['ema12']:.2f}, EMA26: {latest['ema26']:.2f}, EMA50: {latest['ema50']:.2f}, EMA200: {latest['ema200']:.2f}
+- SMA50: {latest['sma50']:.2f}, SMA200: {latest['sma200']:.2f}
+- Aroon Up: {latest['aroon_up']:.2f}, Aroon Down: {latest['aroon_down']:.2f}
+- ADX: {latest['adx']:.2f} (DI+: {latest['adx_pos']:.2f}, DI-: {latest['adx_neg']:.2f})
+
+Momentum:
+- RSI: {latest['rsi']:.2f}
+- MACD: {latest['macd']:.2f} | Signal: {latest['macd_signal']:.2f}
+- Stochastic: {latest['stoch']:.2f}
+
+Volume:
+- OBV: {latest['obv']:.2f}
+- Accumulation/Distribution: {latest['accdist']:.2f}
+
+Volatility:
+- Bollinger Bands: High={latest['bb_high']:.2f}, Low={latest['bb_low']:.2f}, Mid={latest['bb_middle']:.2f}
+
+Using all the above, give a crystal-clear market analysis:
+- Identify the current trend (bullish/bearish/consolidation)
+- Entry decision: Buy/Sell/Hold
+- Suggest an ideal stop loss and take profit
+- Justify clearly using indicator alignments
+- Explain in beginner-friendly language
 """
 
+# === 5. Run Full AI-Powered Analysis ===
 def run_analysis():
     df = fetch_price()
     df = add_indicators(df)
@@ -104,65 +114,3 @@ def run_analysis():
         messages=[{"role": "user", "content": prompt}]
     )
     return completion.choices[0].message.content
-
-# STEP 4: app.py (Flask web app)
-from flask import Flask, render_template, request, redirect, session
-from utils.trading_bot import run_analysis
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-app = Flask(__name__)
-app.secret_key = os.getenv("FLASK_SECRET")
-
-@app.route("/", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        if request.form['username'] == os.getenv("ADMIN_USER") and request.form['password'] == os.getenv("ADMIN_PWD"):
-            session['user'] = "admin"
-            return redirect("/dashboard")
-    return render_template("login.html")
-
-@app.route("/dashboard")
-def dashboard():
-    if session.get("user") != "admin":
-        return redirect("/")
-    analysis = run_analysis()
-    return render_template("dashboard.html", analysis=analysis)
-
-if __name__ == "__main__":
-    app.run(debug=True)
-
-# STEP 5: templates/login.html
-'''
-<!doctype html>
-<html><body>
-<h2>Login</h2>
-<form method="POST">
-  <input name="username" placeholder="Username"><br>
-  <input type="password" name="password" placeholder="Password"><br>
-  <button type="submit">Login</button>
-</form>
-</body></html>
-'''
-
-# STEP 6: templates/dashboard.html
-'''
-<!doctype html>
-<html><body>
-<h2>Trading Dashboard</h2>
-<img src="/static/market_chart.png" width="600">
-<pre>{{ analysis }}</pre>
-</body></html>
-'''
-
-# === HOW TO RUN LOCALLY ===
-# 1. Create folder and place files accordingly
-# 2. Create and activate virtual environment:
-#    python -m venv venv && venv\Scripts\activate
-# 3. Install dependencies:
-#    pip install -r requirements.txt
-# 4. Add your .env keys in root
-# 5. Run Flask app:
-#    python app.py
-# 6. Visit: http://127.0.0.1:5000
