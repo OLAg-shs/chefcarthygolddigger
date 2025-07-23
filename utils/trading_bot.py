@@ -1,107 +1,125 @@
-# enhanced_ai_trading_bot.py
+# ai_trading_bot.py
 
 import requests
 import pandas as pd
 import numpy as np
-import ta
-import datetime
-from ta.trend import MACD, SMAIndicator, EMAIndicator, CCIIndicator, ADXIndicator
-from ta.momentum import RSIIndicator, StochasticOscillator, ROCIndicator, StochRSIIndicator
-from ta.volatility import BollingerBands, AverageTrueRange
-from ta.volume import OnBalanceVolumeIndicator, ChaikinMoneyFlowIndicator
-from ta.others import DailyReturnIndicator
-from typing import Dict
+from ta import trend, momentum, volatility, volume
+import datetime as dt
+
+# --- CONFIGURATION ---
+API_KEY = "your_twelvedata_api_key"
+SYMBOL = "XAU/USD"
+INTERVAL = "15min"
+LIMIT = 200
 
 
-class EnhancedTradingBot:
-    def __init__(self, symbol: str, timeframe: str = '1h', limit: int = 500):
-        self.symbol = symbol.upper()
-        self.timeframe = timeframe
-        self.limit = limit
-        self.df = pd.DataFrame()
+def fetch_data():
+    url = f"https://api.twelvedata.com/time_series?symbol={SYMBOL}&interval={INTERVAL}&outputsize={LIMIT}&apikey={API_KEY}&format=JSON"
+    response = requests.get(url)
+    data = response.json()
+    if "values" not in data:
+        raise Exception("Failed to fetch data: " + str(data))
 
-    def fetch_data(self):
-        url = f"https://api.twelvedata.com/time_series?symbol={self.symbol}&interval={self.timeframe}&outputsize={self.limit}&apikey=demo"
-        r = requests.get(url)
-        if 'values' not in r.json():
-            raise ValueError("Error fetching data from TwelveData")
-        df = pd.DataFrame(r.json()['values'])
-        df = df.rename(columns={"datetime": "date", "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"})
-        df = df.sort_values("date")
-        df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
-        self.df = df.reset_index(drop=True)
+    df = pd.DataFrame(data["values"])
+    df = df.rename(columns={"datetime": "time", "close": "close", "open": "open", "high": "high", "low": "low", "volume": "volume"})
+    df = df.astype(float, errors='ignore')
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.sort_values("time")
+    return df
 
-    def add_indicators(self):
-        df = self.df.copy()
-        df['rsi'] = RSIIndicator(df['close']).rsi()
-        df['macd'] = MACD(df['close']).macd_diff()
-        df['ema_12'] = EMAIndicator(df['close'], window=12).ema_indicator()
-        df['ema_26'] = EMAIndicator(df['close'], window=26).ema_indicator()
-        df['sma_50'] = SMAIndicator(df['close'], window=50).sma_indicator()
-        df['cci'] = CCIIndicator(df['high'], df['low'], df['close']).cci()
-        df['adx'] = ADXIndicator(df['high'], df['low'], df['close']).adx()
-        df['stochastic_k'] = StochasticOscillator(df['high'], df['low'], df['close']).stoch()
-        df['roc'] = ROCIndicator(df['close']).roc()
-        df['atr'] = AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
-        df['bollinger_h'] = BollingerBands(df['close']).bollinger_hband()
-        df['bollinger_l'] = BollingerBands(df['close']).bollinger_lband()
-        df['obv'] = OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
-        df['cmf'] = ChaikinMoneyFlowIndicator(df['high'], df['low'], df['close'], df['volume']).chaikin_money_flow()
 
-        self.df = df
+def compute_indicators(df):
+    try:
+        df["EMA_12"] = trend.ema_indicator(df["close"], window=12)
+        df["EMA_26"] = trend.ema_indicator(df["close"], window=26)
+        df["EMA_50"] = trend.ema_indicator(df["close"], window=50)
+        df["SMA_20"] = trend.sma_indicator(df["close"], window=20)
+        df["SMA_50"] = trend.sma_indicator(df["close"], window=50)
 
-    def analyze(self) -> Dict:
-        row = self.df.iloc[-1]
-        result = {
-            "symbol": self.symbol,
-            "current_price": row['close'],
-            "trend": "Bullish" if row['ema_12'] > row['ema_26'] else "Bearish",
-            "momentum": "Strong" if row['macd'] > 0 else "Weak",
-            "volatility": row['atr'],
-            "volume_trend": "High" if row['obv'] > 0 else "Low",
-            "rsi": row['rsi'],
-            "macd": row['macd'],
-            "cci": row['cci'],
-            "adx": row['adx'],
-            "stochastic": row['stochastic_k'],
-            "roc": row['roc'],
-            "bollinger_signal": "Overbought" if row['close'] > row['bollinger_h'] else ("Oversold" if row['close'] < row['bollinger_l'] else "Normal"),
-            "bias": "BUY" if row['ema_12'] > row['ema_26'] and row['rsi'] > 50 and row['macd'] > 0 else "SELL",
-            "confidence": self.calculate_confidence(row)
-        }
-        return result
+        macd = trend.macd(df["close"])
+        signal = trend.macd_signal(df["close"])
+        df["MACD"] = macd
+        df["MACD_Signal"] = signal
 
-    def calculate_confidence(self, row) -> int:
-        score = 0
-        if row['ema_12'] > row['ema_26']: score += 1
-        if row['macd'] > 0: score += 1
-        if row['rsi'] > 50: score += 1
-        if row['adx'] > 20: score += 1
-        if row['cci'] > 0: score += 1
-        if row['stochastic_k'] > 50: score += 1
-        if row['roc'] > 0: score += 1
-        if row['cmf'] > 0: score += 1
-        return round((score / 8) * 10)
+        df["RSI"] = momentum.rsi(df["close"], window=14)
+        df["Stochastic_K"] = momentum.stoch(df["high"], df["low"], df["close"])
+        df["Stochastic_D"] = df["Stochastic_K"].rolling(window=3).mean()
+        df["CCI"] = trend.cci(df["high"], df["low"], df["close"], window=20)
 
-    def run(self):
-        try:
-            self.fetch_data()
-            self.add_indicators()
-            return self.analyze()
-        except Exception as e:
-            return {"error": str(e)}
+        df["ADX"] = trend.adx(df["high"], df["low"], df["close"], window=14)
+
+        bb = volatility.BollingerBands(df["close"], window=20, window_dev=2)
+        df["BB_upper"] = bb.bollinger_hband()
+        df["BB_lower"] = bb.bollinger_lband()
+
+        df["ATR"] = volatility.average_true_range(df["high"], df["low"], df["close"], window=14)
+
+        df["OBV"] = volume.on_balance_volume(df["close"], df["volume"])
+        df["CMF"] = volume.chaikin_money_flow(df["high"], df["low"], df["close"], df["volume"], window=20)
+
+        return df
+    except Exception as e:
+        raise Exception("Failed to compute indicators: " + str(e))
+
+
+def explain_signals(row):
+    messages = []
+    price = row["close"]
+    ema12, ema26 = row["EMA_12"], row["EMA_26"]
+    rsi = row["RSI"]
+    stochastic_k, stochastic_d = row["Stochastic_K"], row["Stochastic_D"]
+    macd, macd_signal = row["MACD"], row["MACD_Signal"]
+    bb_upper, bb_lower = row["BB_upper"], row["BB_lower"]
+    atr = row["ATR"]
+    adx = row["ADX"]
+    cci = row["CCI"]
+    obv = row["OBV"]
+    cmf = row["CMF"]
+
+    trend_bias = ""
+    if price < ema12 and ema12 < ema26:
+        trend_bias = "Bearish"
+        messages.append(f"📉 Price is below both EMA12 and EMA26 → Bearish trend")
+    elif price > ema12 and ema12 > ema26:
+        trend_bias = "Bullish"
+        messages.append(f"📈 Price is above both EMA12 and EMA26 → Bullish trend")
+    else:
+        trend_bias = "Neutral"
+        messages.append(f"🔁 Price is between EMAs → Sideways market")
+
+    # Indicator summaries
+    messages.append(f"💠 RSI is {rsi:.2f} → {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
+    messages.append(f"💠 MACD is {macd:.2f}, Signal is {macd_signal:.2f} → {'Bullish crossover' if macd > macd_signal else 'Bearish crossover'}")
+    messages.append(f"💠 Stochastic K/D: {stochastic_k:.2f}/{stochastic_d:.2f} → {'Oversold' if stochastic_k < 20 else 'Overbought' if stochastic_k > 80 else 'Neutral'}")
+    messages.append(f"💠 CCI is {cci:.2f} → {'Bullish' if cci > 100 else 'Bearish' if cci < -100 else 'Neutral'}")
+    messages.append(f"💠 ADX is {adx:.2f} → {'Strong trend' if adx > 25 else 'Weak trend'}")
+    messages.append(f"💠 ATR is {atr:.2f} → Measures volatility")
+    messages.append(f"💠 OBV and CMF: {obv:.2f}, {cmf:.2f} → {'Positive flow' if cmf > 0 else 'Negative flow'}")
+    messages.append(f"💠 Bollinger Bands: Price is {'below' if price < bb_lower else 'above' if price > bb_upper else 'within'} the bands")
+
+    # Bias
+    bias = "BUY" if trend_bias == "Bullish" and rsi < 70 and macd > macd_signal else "SELL" if trend_bias == "Bearish" and rsi > 30 and macd < macd_signal else "HOLD"
+
+    sl = price + atr if bias == "SELL" else price - atr if bias == "BUY" else price
+    tp1 = price - 2 * atr if bias == "SELL" else price + 2 * atr if bias == "BUY" else price
+    tp2 = price - 3 * atr if bias == "SELL" else price + 3 * atr if bias == "BUY" else price
+
+    summary = f"\n\n**Market Summary**\n\nTrend: {trend_bias}\nMomentum: {('Weak' if adx < 20 else 'Strong')}\nVolatility: ATR = {atr:.2f}\nVolume: {'Positive' if cmf > 0 else 'Negative'}\n\n**Bias**: {bias}\n\nEntry Price: {price:.2f}\nStop Loss: {sl:.2f}\nTake Profit 1: {tp1:.2f}\nTake Profit 2: {tp2:.2f}\n\n"
+
+    return "\n".join(messages) + summary
+
+
+def main():
+    try:
+        df = fetch_data()
+        df = compute_indicators(df)
+        latest = df.iloc[-1]
+        report = explain_signals(latest)
+        print("AI Trading Insight:\n")
+        print(report)
+    except Exception as e:
+        print("❌ Error: ", str(e))
 
 
 if __name__ == "__main__":
-    bot = EnhancedTradingBot("XAU/USD", "1h")
-    analysis = bot.run()
-    print("\nAI Trading Insight:\n")
-    if 'error' in analysis:
-        print(f"❌ Error: {analysis['error']}")
-    else:
-        print(f"📍 Symbol: {analysis['symbol']}")
-        print(f"💰 Current Price: {analysis['current_price']:.2f}")
-        print(f"📈 Trend: {analysis['trend']}, Momentum: {analysis['momentum']}, Volatility (ATR): {analysis['volatility']:.2f}, Volume: {analysis['volume_trend']}")
-        print(f"📊 RSI: {analysis['rsi']:.2f}, MACD: {analysis['macd']:.2f}, CCI: {analysis['cci']:.2f}, ADX: {analysis['adx']:.2f}, Stochastic %K: {analysis['stochastic']:.2f}, ROC: {analysis['roc']:.2f}")
-        print(f"📉 Bollinger Signal: {analysis['bollinger_signal']}")
-        print(f"📍 Bias: {analysis['bias']}, Confidence Level: {analysis['confidence']}/10")
+    main()
