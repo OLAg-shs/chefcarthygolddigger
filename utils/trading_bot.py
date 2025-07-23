@@ -1,13 +1,14 @@
-# ai_trading_bot.py
+# utils/trading_bot.py
 
 import requests
 import pandas as pd
 import numpy as np
 from ta import trend, momentum, volatility, volume
 import datetime as dt
+import os
 
 # --- CONFIGURATION ---
-API_KEY = "your_twelvedata_api_key"
+API_KEY = os.getenv("TWELVEDATA_API_KEY")  # Make sure env var is set correctly on Render
 SYMBOL = "XAU/USD"
 INTERVAL = "15min"
 LIMIT = 200
@@ -36,10 +37,8 @@ def compute_indicators(df):
         df["SMA_20"] = trend.sma_indicator(df["close"], window=20)
         df["SMA_50"] = trend.sma_indicator(df["close"], window=50)
 
-        macd = trend.macd(df["close"])
-        signal = trend.macd_signal(df["close"])
-        df["MACD"] = macd
-        df["MACD_Signal"] = signal
+        df["MACD"] = trend.macd(df["close"])
+        df["MACD_Signal"] = trend.macd_signal(df["close"])
 
         df["RSI"] = momentum.rsi(df["close"], window=14)
         df["Stochastic_K"] = momentum.stoch(df["high"], df["low"], df["close"])
@@ -79,13 +78,13 @@ def explain_signals(row):
     trend_bias = ""
     if price < ema12 and ema12 < ema26:
         trend_bias = "Bearish"
-        messages.append(f"📉 Price is below both EMA12 and EMA26 → Bearish trend")
+        messages.append("📉 Price is below both EMA12 and EMA26 → Bearish trend")
     elif price > ema12 and ema12 > ema26:
         trend_bias = "Bullish"
-        messages.append(f"📈 Price is above both EMA12 and EMA26 → Bullish trend")
+        messages.append("📈 Price is above both EMA12 and EMA26 → Bullish trend")
     else:
         trend_bias = "Neutral"
-        messages.append(f"🔁 Price is between EMAs → Sideways market")
+        messages.append("🔁 Price is between EMAs → Sideways market")
 
     # Indicator summaries
     messages.append(f"💠 RSI is {rsi:.2f} → {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
@@ -98,28 +97,38 @@ def explain_signals(row):
     messages.append(f"💠 Bollinger Bands: Price is {'below' if price < bb_lower else 'above' if price > bb_upper else 'within'} the bands")
 
     # Bias
-    bias = "BUY" if trend_bias == "Bullish" and rsi < 70 and macd > macd_signal else "SELL" if trend_bias == "Bearish" and rsi > 30 and macd < macd_signal else "HOLD"
+    bias = "BUY" if trend_bias == "Bullish" and rsi < 70 and macd > macd_signal else \
+           "SELL" if trend_bias == "Bearish" and rsi > 30 and macd < macd_signal else \
+           "HOLD"
 
     sl = price + atr if bias == "SELL" else price - atr if bias == "BUY" else price
     tp1 = price - 2 * atr if bias == "SELL" else price + 2 * atr if bias == "BUY" else price
     tp2 = price - 3 * atr if bias == "SELL" else price + 3 * atr if bias == "BUY" else price
 
-    summary = f"\n\n**Market Summary**\n\nTrend: {trend_bias}\nMomentum: {('Weak' if adx < 20 else 'Strong')}\nVolatility: ATR = {atr:.2f}\nVolume: {'Positive' if cmf > 0 else 'Negative'}\n\n**Bias**: {bias}\n\nEntry Price: {price:.2f}\nStop Loss: {sl:.2f}\nTake Profit 1: {tp1:.2f}\nTake Profit 2: {tp2:.2f}\n\n"
+    summary = f"""
+
+**Market Summary**
+
+Trend: {trend_bias}
+Momentum: {"Weak" if adx < 20 else "Strong"}
+Volatility: ATR = {atr:.2f}
+Volume: {"Positive" if cmf > 0 else "Negative"}
+
+**Bias**: {bias}
+
+Entry Price: {price:.2f}
+Stop Loss: {sl:.2f}
+Take Profit 1: {tp1:.2f}
+Take Profit 2: {tp2:.2f}
+"""
 
     return "\n".join(messages) + summary
 
 
-def main():
-    try:
-        df = fetch_data()
-        df = compute_indicators(df)
-        latest = df.iloc[-1]
-        report = explain_signals(latest)
-        print("AI Trading Insight:\n")
-        print(report)
-    except Exception as e:
-        print("❌ Error: ", str(e))
-
-
-if __name__ == "__main__":
-    main()
+# ✅ This is the function your Flask app will import
+def run_analysis():
+    df = fetch_data()
+    df = compute_indicators(df)
+    latest = df.iloc[-1]
+    report = explain_signals(latest)
+    return report
