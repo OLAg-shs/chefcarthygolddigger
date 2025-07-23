@@ -1,186 +1,107 @@
-# utils/trading_bot.py
+# enhanced_ai_trading_bot.py
 
-import os
-import pandas as pd
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import requests
+import pandas as pd
+import numpy as np
 import ta
-from dotenv import load_dotenv
-from groq import Groq
-import json
+import datetime
+from ta.trend import MACD, SMAIndicator, EMAIndicator, CCIIndicator, ADXIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator, ROCIndicator, StochRSIIndicator
+from ta.volatility import BollingerBands, AverageTrueRange
+from ta.volume import OnBalanceVolumeIndicator, ChaikinMoneyFlowIndicator
+from ta.others import DailyReturnIndicator
+from typing import Dict
 
-load_dotenv()
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
-client = Groq(api_key=GROQ_API_KEY)
 
-def fetch_price():
-    if not TWELVE_API_KEY:
-        print("❌ TWELVE_API_KEY not set.")
-        return None
+class EnhancedTradingBot:
+    def __init__(self, symbol: str, timeframe: str = '1h', limit: int = 500):
+        self.symbol = symbol.upper()
+        self.timeframe = timeframe
+        self.limit = limit
+        self.df = pd.DataFrame()
 
-    url = f"https://api.twelvedata.com/time_series?symbol=XAU/USD&interval=1h&apikey={TWELVE_API_KEY}&outputsize=500"
-    try:
-        response = requests.get(url, timeout=15)
-        response.raise_for_status()
-        data = response.json()
+    def fetch_data(self):
+        url = f"https://api.twelvedata.com/time_series?symbol={self.symbol}&interval={self.timeframe}&outputsize={self.limit}&apikey=demo"
+        r = requests.get(url)
+        if 'values' not in r.json():
+            raise ValueError("Error fetching data from TwelveData")
+        df = pd.DataFrame(r.json()['values'])
+        df = df.rename(columns={"datetime": "date", "open": "open", "high": "high", "low": "low", "close": "close", "volume": "volume"})
+        df = df.sort_values("date")
+        df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
+        self.df = df.reset_index(drop=True)
 
-        if 'values' not in data:
-            print("❌ No 'values' in Twelve Data response.")
-            return None
+    def add_indicators(self):
+        df = self.df.copy()
+        df['rsi'] = RSIIndicator(df['close']).rsi()
+        df['macd'] = MACD(df['close']).macd_diff()
+        df['ema_12'] = EMAIndicator(df['close'], window=12).ema_indicator()
+        df['ema_26'] = EMAIndicator(df['close'], window=26).ema_indicator()
+        df['sma_50'] = SMAIndicator(df['close'], window=50).sma_indicator()
+        df['cci'] = CCIIndicator(df['high'], df['low'], df['close']).cci()
+        df['adx'] = ADXIndicator(df['high'], df['low'], df['close']).adx()
+        df['stochastic_k'] = StochasticOscillator(df['high'], df['low'], df['close']).stoch()
+        df['roc'] = ROCIndicator(df['close']).roc()
+        df['atr'] = AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
+        df['bollinger_h'] = BollingerBands(df['close']).bollinger_hband()
+        df['bollinger_l'] = BollingerBands(df['close']).bollinger_lband()
+        df['obv'] = OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
+        df['cmf'] = ChaikinMoneyFlowIndicator(df['high'], df['low'], df['close'], df['volume']).chaikin_money_flow()
 
-        df = pd.DataFrame(data['values'])
-        df['datetime'] = pd.to_datetime(df['datetime'])
-        df.set_index('datetime', inplace=True)
+        self.df = df
 
-        for col in ['open', 'high', 'low', 'close', 'volume']:
-            if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce')
-            else:
-                print(f"⚠️ Missing column: {col}")
+    def analyze(self) -> Dict:
+        row = self.df.iloc[-1]
+        result = {
+            "symbol": self.symbol,
+            "current_price": row['close'],
+            "trend": "Bullish" if row['ema_12'] > row['ema_26'] else "Bearish",
+            "momentum": "Strong" if row['macd'] > 0 else "Weak",
+            "volatility": row['atr'],
+            "volume_trend": "High" if row['obv'] > 0 else "Low",
+            "rsi": row['rsi'],
+            "macd": row['macd'],
+            "cci": row['cci'],
+            "adx": row['adx'],
+            "stochastic": row['stochastic_k'],
+            "roc": row['roc'],
+            "bollinger_signal": "Overbought" if row['close'] > row['bollinger_h'] else ("Oversold" if row['close'] < row['bollinger_l'] else "Normal"),
+            "bias": "BUY" if row['ema_12'] > row['ema_26'] and row['rsi'] > 50 and row['macd'] > 0 else "SELL",
+            "confidence": self.calculate_confidence(row)
+        }
+        return result
 
-        df = df.dropna().sort_index()
-        return df
-    except Exception as e:
-        print(f"❌ Error fetching data: {e}")
-        return None
+    def calculate_confidence(self, row) -> int:
+        score = 0
+        if row['ema_12'] > row['ema_26']: score += 1
+        if row['macd'] > 0: score += 1
+        if row['rsi'] > 50: score += 1
+        if row['adx'] > 20: score += 1
+        if row['cci'] > 0: score += 1
+        if row['stochastic_k'] > 50: score += 1
+        if row['roc'] > 0: score += 1
+        if row['cmf'] > 0: score += 1
+        return round((score / 8) * 10)
 
-def add_indicators(df):
-    if df is None or df.empty or 'close' not in df.columns:
-        return pd.DataFrame()
+    def run(self):
+        try:
+            self.fetch_data()
+            self.add_indicators()
+            return self.analyze()
+        except Exception as e:
+            return {"error": str(e)}
 
-    try:
-        # Momentum
-        df['rsi'] = ta.momentum.RSIIndicator(close=df['close']).rsi()
-        stoch = ta.momentum.StochasticOscillator(df['high'], df['low'], df['close'])
-        df['stoch_k'] = stoch.stoch()
-        df['stoch_d'] = stoch.stoch_signal()
-        df['roc'] = ta.momentum.ROCIndicator(df['close']).roc()
 
-        # Trend
-        df['cci'] = ta.trend.CCIIndicator(df['high'], df['low'], df['close']).cci()
-        macd = ta.trend.MACD(df['close'])
-        df['macd'] = macd.macd()
-        df['macd_signal'] = macd.macd_signal()
-        df['macd_diff'] = macd.macd_diff()
-        df['ema12'] = ta.trend.EMAIndicator(df['close'], window=12).ema_indicator()
-        df['ema26'] = ta.trend.EMAIndicator(df['close'], window=26).ema_indicator()
-        df['ema50'] = ta.trend.EMAIndicator(df['close'], window=50).ema_indicator()
-        df['sma20'] = ta.trend.SMAIndicator(df['close'], window=20).sma_indicator()
-        df['sma50'] = ta.trend.SMAIndicator(df['close'], window=50).sma_indicator()
-        df['adx'] = ta.trend.ADXIndicator(df['high'], df['low'], df['close']).adx()
-
-        # Volatility
-        bb = ta.volatility.BollingerBands(close=df['close'])
-        df['bb_high'] = bb.bollinger_hband()
-        df['bb_low'] = bb.bollinger_lband()
-        df['bb_mid'] = bb.bollinger_mavg()
-        df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close']).average_true_range()
-
-        # Volume
-        if 'volume' in df.columns and df['volume'].sum() > 0:
-            df['obv'] = ta.volume.OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
-            df['cmf'] = ta.volume.ChaikinMoneyFlowIndicator(df['high'], df['low'], df['close'], df['volume']).chaikin_money_flow()
-        else:
-            df['obv'] = 0
-            df['cmf'] = 0
-
-        return df.dropna()
-    except Exception as e:
-        print(f"❌ Indicator error: {e}")
-        return pd.DataFrame()
-
-def generate_chart(df):
-    if df.empty:
-        return
-    plt.figure(figsize=(12, 6))
-    plt.plot(df.index, df['close'], label='Close Price', color='blue')
-    plt.plot(df.index, df['ema12'], label='EMA 12', color='orange', linestyle='--')
-    plt.plot(df.index, df['ema26'], label='EMA 26', color='purple', linestyle='--')
-    plt.title("XAU/USD Price & EMAs")
-    plt.xlabel("Date")
-    plt.ylabel("Price ($)")
-    plt.legend()
-    plt.grid(True)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    os.makedirs("static", exist_ok=True)
-    plt.savefig("static/market_chart.png")
-    plt.close()
-
-def generate_prompt(df):
-    if df.empty:
-        return "No data available."
-
-    latest = df.iloc[-1]
-    def val(k): return f"{latest[k]:.2f}" if k in latest and pd.notna(latest[k]) else "N/A"
-
-    indicators = f"""
-📊 Indicators Snapshot:
-- Price: {val('close')}
-- RSI: {val('rsi')}
-- Stochastic K / D: {val('stoch_k')} / {val('stoch_d')}
-- Rate of Change (ROC): {val('roc')}
-- CCI: {val('cci')}
-- MACD: {val('macd')} | Signal: {val('macd_signal')} | Histogram: {val('macd_diff')}
-- EMA (12 / 26 / 50): {val('ema12')} / {val('ema26')} / {val('ema50')}
-- SMA (20 / 50): {val('sma20')} / {val('sma50')}
-- ADX: {val('adx')}
-- Bollinger Bands High / Mid / Low: {val('bb_high')} / {val('bb_mid')} / {val('bb_low')}
-- ATR: {val('atr')}
-- OBV: {val('obv')}
-- CMF: {val('cmf')}
-"""
-
-    return f"""
-You are Chef Carthy, a veteran institutional forex analyst.
-
-Task:
-Using the **1-hour timeframe data** for XAU/USD and all indicators above, perform a **professional market analysis**.
-
-Return format:
-- 📊 Market Summary (trend, momentum, volatility, volume)
-- 📈 Bias (BUY / SELL / HOLD with reasons)
-- 📍 Entry suggestion
-- 🛑 Stop Loss
-- 🎯 Take Profit 1
-- 🎯 Take Profit 2 (optional)
-- ✅ Summary & Confidence Level
-
-{indicators}
-"""
-
-def run_analysis():
-    print("🟡 Fetching market data...")
-    df = fetch_price()
-    if df is None or df.empty:
-        return "❌ Error: Could not fetch live market data."
-
-    print("📊 Computing indicators...")
-    df = add_indicators(df)
-    if df.empty:
-        return "❌ Error: Failed to compute technical indicators."
-
-    print("🖼️ Generating chart...")
-    generate_chart(df)
-
-    print("💬 Generating prompt...")
-    prompt = generate_prompt(df)
-
-    print("🤖 Getting AI analysis...")
-    try:
-        completion = client.chat.completions.create(
-            model="llama3-8b-8192",
-            messages=[
-                {"role": "system", "content": "You are Chef Carthy, a professional forex analyst using all available technical indicators."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.5,
-            max_tokens=1200,
-            top_p=0.9
-        )
-        return completion.choices[0].message.content
-    except Exception as e:
-        return f"❌ Error generating analysis: {e}"
+if __name__ == "__main__":
+    bot = EnhancedTradingBot("XAU/USD", "1h")
+    analysis = bot.run()
+    print("\nAI Trading Insight:\n")
+    if 'error' in analysis:
+        print(f"❌ Error: {analysis['error']}")
+    else:
+        print(f"📍 Symbol: {analysis['symbol']}")
+        print(f"💰 Current Price: {analysis['current_price']:.2f}")
+        print(f"📈 Trend: {analysis['trend']}, Momentum: {analysis['momentum']}, Volatility (ATR): {analysis['volatility']:.2f}, Volume: {analysis['volume_trend']}")
+        print(f"📊 RSI: {analysis['rsi']:.2f}, MACD: {analysis['macd']:.2f}, CCI: {analysis['cci']:.2f}, ADX: {analysis['adx']:.2f}, Stochastic %K: {analysis['stochastic']:.2f}, ROC: {analysis['roc']:.2f}")
+        print(f"📉 Bollinger Signal: {analysis['bollinger_signal']}")
+        print(f"📍 Bias: {analysis['bias']}, Confidence Level: {analysis['confidence']}/10")
