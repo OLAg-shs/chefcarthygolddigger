@@ -62,11 +62,15 @@ def add_indicators(df):
         if col in df.columns:
             df[col] = df[col].astype(float)
 
+    # Momentum Indicators
     df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
     stoch = ta.momentum.StochasticOscillator(df['high'], df['low'], df['close'], window=14, smooth_window=3)
     df['stoch_k'] = stoch.stoch()
     df['stoch_d'] = stoch.stoch_signal()
-    df['mom'] = ta.momentum.MomentumIndicator(df['close'], window=10).momentum()
+    df['roc'] = ta.momentum.ROCIndicator(df['close'], window=12).roc()
+    df['awesome'] = ta.momentum.AwesomeOscillatorIndicator(df['high'], df['low']).awesome_oscillator()
+
+    # Trend Indicators
     df['cci'] = ta.trend.CCIIndicator(df['high'], df['low'], df['close'], window=20).cci()
     macd = ta.trend.MACD(df['close'])
     df['macd'] = macd.macd()
@@ -78,13 +82,19 @@ def add_indicators(df):
     df['sma20'] = ta.trend.SMAIndicator(df['close'], window=20).sma_indicator()
     df['sma50'] = ta.trend.SMAIndicator(df['close'], window=50).sma_indicator()
     df['adx'] = ta.trend.ADXIndicator(df['high'], df['low'], df['close'], window=14).adx()
+
+    # Volatility Indicators
     bb = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
     df['bb_high'] = bb.bollinger_hband()
     df['bb_low'] = bb.bollinger_lband()
     df['bb_mid'] = bb.bollinger_mavg()
     df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14).average_true_range()
+
+    # Volume Indicators
     df['obv'] = ta.volume.OnBalanceVolumeIndicator(df['close'], df['volume']).on_balance_volume()
     df['cmf'] = ta.volume.ChaikinMoneyFlowIndicator(df['high'], df['low'], df['close'], df['volume']).chaikin_money_flow()
+    df['mfi'] = ta.volume.MFIIndicator(df['high'], df['low'], df['close'], df['volume'], window=14).money_flow_index()
+
     df = df.dropna()
     return df
 
@@ -115,16 +125,16 @@ def generate_prompt(df):
 
     details = f"""
     - Price: {val('close')}
-    - RSI: {val('rsi')}
+    - RSI: {val('rsi')}, ROC: {val('roc')}, AO: {val('awesome')}
     - Stochastic K/D: {val('stoch_k')}, {val('stoch_d')}
-    - Momentum: {val('mom')}, CCI: {val('cci')}
+    - CCI: {val('cci')}
     - MACD: {val('macd')}, Signal: {val('macd_signal')}, Histogram: {val('macd_diff')}
     - EMAs (12/26/50): {val('ema12')}, {val('ema26')}, {val('ema50')}
     - SMAs (20/50): {val('sma20')}, {val('sma50')}
     - ADX: {val('adx')}
     - Bollinger Bands (High/Mid/Low): {val('bb_high')}, {val('bb_mid')}, {val('bb_low')}
     - ATR: {val('atr')}
-    - OBV: {val('obv')}, CMF: {val('cmf')}
+    - OBV: {val('obv')}, CMF: {val('cmf')}, MFI: {val('mfi')}
     """
 
     return f"""
