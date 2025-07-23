@@ -8,11 +8,10 @@ import datetime as dt
 import os
 
 # --- CONFIGURATION ---
-API_KEY = os.getenv("TWELVEDATA_API_KEY")  # Make sure env var is set correctly on Render
+API_KEY = os.getenv("TWELVE_API_KEY")  # ✅ FIXED: matches .env key on Render
 SYMBOL = "XAU/USD"
 INTERVAL = "15min"
 LIMIT = 200
-
 
 def fetch_data():
     url = f"https://api.twelvedata.com/time_series?symbol={SYMBOL}&interval={INTERVAL}&outputsize={LIMIT}&apikey={API_KEY}&format=JSON"
@@ -22,12 +21,11 @@ def fetch_data():
         raise Exception("Failed to fetch data: " + str(data))
 
     df = pd.DataFrame(data["values"])
-    df = df.rename(columns={"datetime": "time", "close": "close", "open": "open", "high": "high", "low": "low", "volume": "volume"})
+    df.rename(columns={"datetime": "time", "close": "close", "open": "open", "high": "high", "low": "low", "volume": "volume"}, inplace=True)
     df = df.astype(float, errors='ignore')
     df["time"] = pd.to_datetime(df["time"])
-    df = df.sort_values("time")
+    df.sort_values("time", inplace=True)
     return df
-
 
 def compute_indicators(df):
     try:
@@ -60,7 +58,6 @@ def compute_indicators(df):
     except Exception as e:
         raise Exception("Failed to compute indicators: " + str(e))
 
-
 def explain_signals(row):
     messages = []
     price = row["close"]
@@ -75,31 +72,27 @@ def explain_signals(row):
     obv = row["OBV"]
     cmf = row["CMF"]
 
-    trend_bias = ""
+    trend_bias = "Neutral"
     if price < ema12 and ema12 < ema26:
         trend_bias = "Bearish"
-        messages.append("📉 Price is below both EMA12 and EMA26 → Bearish trend")
+        messages.append("📉 Price is below EMA12 and EMA26 → Bearish trend")
     elif price > ema12 and ema12 > ema26:
         trend_bias = "Bullish"
-        messages.append("📈 Price is above both EMA12 and EMA26 → Bullish trend")
+        messages.append("📈 Price is above EMA12 and EMA26 → Bullish trend")
     else:
-        trend_bias = "Neutral"
         messages.append("🔁 Price is between EMAs → Sideways market")
 
-    # Indicator summaries
-    messages.append(f"💠 RSI is {rsi:.2f} → {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
-    messages.append(f"💠 MACD is {macd:.2f}, Signal is {macd_signal:.2f} → {'Bullish crossover' if macd > macd_signal else 'Bearish crossover'}")
-    messages.append(f"💠 Stochastic K/D: {stochastic_k:.2f}/{stochastic_d:.2f} → {'Oversold' if stochastic_k < 20 else 'Overbought' if stochastic_k > 80 else 'Neutral'}")
-    messages.append(f"💠 CCI is {cci:.2f} → {'Bullish' if cci > 100 else 'Bearish' if cci < -100 else 'Neutral'}")
-    messages.append(f"💠 ADX is {adx:.2f} → {'Strong trend' if adx > 25 else 'Weak trend'}")
-    messages.append(f"💠 ATR is {atr:.2f} → Measures volatility")
-    messages.append(f"💠 OBV and CMF: {obv:.2f}, {cmf:.2f} → {'Positive flow' if cmf > 0 else 'Negative flow'}")
+    messages.append(f"💠 RSI = {rsi:.2f} → {'Oversold' if rsi < 30 else 'Overbought' if rsi > 70 else 'Neutral'}")
+    messages.append(f"💠 MACD = {macd:.2f}, Signal = {macd_signal:.2f} → {'Bullish crossover' if macd > macd_signal else 'Bearish crossover'}")
+    messages.append(f"💠 Stochastic K/D = {stochastic_k:.2f}/{stochastic_d:.2f} → {'Oversold' if stochastic_k < 20 else 'Overbought' if stochastic_k > 80 else 'Neutral'}")
+    messages.append(f"💠 CCI = {cci:.2f} → {'Bullish' if cci > 100 else 'Bearish' if cci < -100 else 'Neutral'}")
+    messages.append(f"💠 ADX = {adx:.2f} → {'Strong trend' if adx > 25 else 'Weak trend'}")
+    messages.append(f"💠 ATR = {atr:.2f} → Volatility measure")
+    messages.append(f"💠 OBV = {obv:.2f}, CMF = {cmf:.2f} → {'Positive flow' if cmf > 0 else 'Negative flow'}")
     messages.append(f"💠 Bollinger Bands: Price is {'below' if price < bb_lower else 'above' if price > bb_upper else 'within'} the bands")
 
-    # Bias
     bias = "BUY" if trend_bias == "Bullish" and rsi < 70 and macd > macd_signal else \
-           "SELL" if trend_bias == "Bearish" and rsi > 30 and macd < macd_signal else \
-           "HOLD"
+           "SELL" if trend_bias == "Bearish" and rsi > 30 and macd < macd_signal else "HOLD"
 
     sl = price + atr if bias == "SELL" else price - atr if bias == "BUY" else price
     tp1 = price - 2 * atr if bias == "SELL" else price + 2 * atr if bias == "BUY" else price
@@ -107,25 +100,23 @@ def explain_signals(row):
 
     summary = f"""
 
-**Market Summary**
-
+📊 **Market Summary**
 Trend: {trend_bias}
 Momentum: {"Weak" if adx < 20 else "Strong"}
-Volatility: ATR = {atr:.2f}
-Volume: {"Positive" if cmf > 0 else "Negative"}
+Volatility (ATR): {atr:.2f}
+Volume Flow: {"Positive" if cmf > 0 else "Negative"}
 
-**Bias**: {bias}
+🎯 **Bias**: {bias}
 
-Entry Price: {price:.2f}
-Stop Loss: {sl:.2f}
-Take Profit 1: {tp1:.2f}
-Take Profit 2: {tp2:.2f}
+🔹 Entry Price: {price:.2f}
+🔻 Stop Loss: {sl:.2f}
+🔺 Take Profit 1: {tp1:.2f}
+🔺 Take Profit 2: {tp2:.2f}
 """
 
     return "\n".join(messages) + summary
 
-
-# ✅ This is the function your Flask app will import
+# ✅ Main function to use in app.py
 def run_analysis():
     df = fetch_data()
     df = compute_indicators(df)
