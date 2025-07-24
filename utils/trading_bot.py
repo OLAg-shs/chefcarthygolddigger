@@ -1,163 +1,184 @@
 import os
-import requests
 import pandas as pd
+import requests
+import datetime as dt
+import numpy as np
 import ta
-from datetime import datetime
 
-# Get TwelveData API key from environment variable
+from openai import OpenAI
+from dotenv import load_dotenv
+
+load_dotenv()
+
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
+# ========== Fetch Live Data ==========
 def fetch_data(symbol):
-    interval = "15min"
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=100&apikey={TWELVE_API_KEY}"
-    response = requests.get(url)
-    data = response.json()
-
-    if "values" not in data:
-        raise ValueError(f"Failed to fetch data for {symbol}: {data.get('message', 'Unknown error')}")
-
-    df = pd.DataFrame(data["values"])
-    df = df.astype({"open": float, "high": float, "low": float, "close": float})
-    df["datetime"] = pd.to_datetime(df["datetime"])
-    df = df.sort_values("datetime").reset_index(drop=True)
-
-    return df
-
-def compute_indicators(df):
-    # Trend indicators
-    df["EMA12"] = ta.trend.ema_indicator(df["close"], window=12)
-    df["EMA26"] = ta.trend.ema_indicator(df["close"], window=26)
-    
-    # Momentum
-    df["RSI"] = ta.momentum.rsi(df["close"])
-    macd = ta.trend.macd(df["close"])
-    df["MACD"] = macd.macd_diff()
-    df["MACD_line"] = macd.macd()
-    df["MACD_signal"] = macd.macd_signal()
-    df["STOCH_K"] = ta.momentum.stoch(df["high"], df["low"], df["close"])
-    df["STOCH_D"] = ta.momentum.stoch_signal(df["high"], df["low"], df["close"])
-    df["CCI"] = ta.trend.cci(df["high"], df["low"], df["close"])
-    df["ADX"] = ta.trend.adx(df["high"], df["low"], df["close"])
-    
-    # Volatility
-    df["ATR"] = ta.volatility.average_true_range(df["high"], df["low"], df["close"])
-    df["BB_upper"] = ta.volatility.bollinger_hband(df["close"])
-    df["BB_lower"] = ta.volatility.bollinger_lband(df["close"])
-
-    # Volume indicators (some assets don’t provide volume)
     try:
-        df["OBV"] = ta.volume.on_balance_volume(df["close"], df["volume"])
-        df["CMF"] = ta.volume.chaikin_money_flow(df["high"], df["low"], df["close"], df["volume"])
-        has_volume = True
-    except:
-        df["OBV"] = df["CMF"] = None
-        has_volume = False
+        interval = "15min" if symbol != "AAPL" else "1min"  # Apple is a stock
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize=100&apikey={TWELVE_API_KEY}"
+        response = requests.get(url)
+        data = response.json()
 
-    return df, has_volume
+        if "values" not in data:
+            raise ValueError(f"Failed to fetch data: {data}")
 
-def interpret_indicators(df, has_volume):
-    latest = df.iloc[-1]
-    price = round(latest["close"], 2)
+        df = pd.DataFrame(data["values"])
+        df = df.rename(columns={
+            "datetime": "time",
+            "open": "open",
+            "high": "high",
+            "low": "low",
+            "close": "close",
+            "volume": "volume"
+        })
 
-    explanations = []
-    confidence = 0
+        df = df.astype({
+            "open": float, "high": float, "low": float, "close": float
+        })
 
-    # Trend
-    if latest["EMA12"] > latest["EMA26"]:
-        trend = "Bullish"
-        explanations.append("📈 Price > EMA12 > EMA26 → **Bullish trend**")
-        confidence += 1
-    else:
-        trend = "Bearish"
-        explanations.append("📉 Price < EMA12 < EMA26 → **Bearish trend**")
+        if "volume" in df.columns:
+            df["volume"] = df["volume"].astype(float)
 
-    # RSI
-    rsi = latest["RSI"]
-    if rsi > 70:
-        explanations.append(f"💠 RSI = {rsi:.2f} → Overbought (SELL signal)")
-    elif rsi < 30:
-        explanations.append(f"💠 RSI = {rsi:.2f} → Oversold (BUY signal)")
-        confidence += 1
-    else:
-        explanations.append(f"💠 RSI = {rsi:.2f} → Neutral")
+        df = df.sort_values("time")
+        df.reset_index(drop=True, inplace=True)
 
-    # MACD
-    macd_line = latest["MACD_line"]
-    macd_signal = latest["MACD_signal"]
-    macd_diff = latest["MACD"]
-    if macd_diff > 0:
-        explanations.append(f"💠 MACD = {macd_line:.2f}, Signal = {macd_signal:.2f} → **Bullish crossover**")
-        confidence += 1
-    else:
-        explanations.append(f"💠 MACD = {macd_line:.2f}, Signal = {macd_signal:.2f} → Bearish crossover")
-
-    # Stochastic
-    stoch_k = latest["STOCH_K"]
-    stoch_d = latest["STOCH_D"]
-    explanations.append(f"💠 Stochastic K/D = {stoch_k:.2f}/{stoch_d:.2f} → Neutral")
-
-    # CCI
-    cci = latest["CCI"]
-    if cci > 100:
-        explanations.append(f"💠 CCI = {cci:.2f} → Overbought")
-    elif cci < -100:
-        explanations.append(f"💠 CCI = {cci:.2f} → Oversold")
-        confidence += 1
-    else:
-        explanations.append(f"💠 CCI = {cci:.2f} → Neutral")
-
-    # ADX
-    adx = latest["ADX"]
-    if adx > 25:
-        explanations.append(f"💠 ADX = {adx:.2f} → Strong trend")
-        confidence += 1
-    else:
-        explanations.append(f"💠 ADX = {adx:.2f} → Weak trend")
-
-    # ATR
-    atr = round(latest["ATR"], 2)
-    explanations.append(f"💠 ATR = {atr:.2f} → Measures market volatility")
-
-    # Bollinger Bands
-    bb_upper = latest["BB_upper"]
-    bb_lower = latest["BB_lower"]
-    if bb_lower < price < bb_upper:
-        explanations.append("💠 Bollinger Bands: Price is within the bands (normal)")
-    else:
-        explanations.append("💠 Bollinger Bands: Price is outside the bands (volatility)")
-
-    # Volume
-    if has_volume:
-        obv = latest["OBV"]
-        cmf = latest["CMF"]
-        explanations.append(f"💠 OBV = {obv:.2f}, CMF = {cmf:.2f} → {'Positive' if cmf > 0 else 'Negative'} volume flow")
-        if cmf > 0: confidence += 1
-    else:
-        explanations.append("💠 Volume Flow: ❌ Not available for this symbol")
-
-    # Bias decision
-    bias = "BUY" if confidence >= 4 else "SELL"
-    stop_loss = round(price * (0.998 if bias == "BUY" else 1.002), 2)
-    take_profit_1 = round(price * (1.01 if bias == "BUY" else 0.99), 2)
-    take_profit_2 = round(price * (1.02 if bias == "BUY" else 0.98), 2)
-
-    return {
-        "price": price,
-        "bias": bias,
-        "stop_loss": stop_loss,
-        "take_profit_1": take_profit_1,
-        "take_profit_2": take_profit_2,
-        "confidence": confidence,
-        "trend": trend,
-        "atr": atr,
-        "explanations": explanations,
-    }
-
-def run_analysis_for_symbol(symbol):
-    try:
-        df = fetch_data(symbol)
-        df, has_volume = compute_indicators(df)
-        insights = interpret_indicators(df, has_volume)
-        return insights
+        return df
     except Exception as e:
-        return {"error": f"❌ Error analyzing {symbol}: {str(e)}"}
+        return str(e)
+
+# ========== Compute Indicators ==========
+def compute_indicators(df, symbol):
+    try:
+        close = df["close"]
+        high = df["high"]
+        low = df["low"]
+        volume = df["volume"] if "volume" in df.columns else None
+
+        indicators = {}
+
+        # EMAs
+        ema12 = ta.trend.EMAIndicator(close, window=12).ema_indicator()
+        ema26 = ta.trend.EMAIndicator(close, window=26).ema_indicator()
+        indicators["EMA12"] = ema12.iloc[-1]
+        indicators["EMA26"] = ema26.iloc[-1]
+
+        # RSI
+        rsi = ta.momentum.RSIIndicator(close).rsi()
+        indicators["RSI"] = rsi.iloc[-1]
+
+        # MACD
+        macd = ta.trend.MACD(close)
+        indicators["MACD"] = macd.macd().iloc[-1]
+        indicators["MACD_signal"] = macd.macd_signal().iloc[-1]
+
+        # Stochastic Oscillator
+        stoch = ta.momentum.StochasticOscillator(high, low, close)
+        indicators["Stoch_K"] = stoch.stoch().iloc[-1]
+        indicators["Stoch_D"] = stoch.stoch_signal().iloc[-1]
+
+        # CCI
+        cci = ta.trend.CCIIndicator(high, low, close)
+        indicators["CCI"] = cci.cci().iloc[-1]
+
+        # ADX
+        adx = ta.trend.ADXIndicator(high, low, close)
+        indicators["ADX"] = adx.adx().iloc[-1]
+
+        # ATR (Volatility)
+        atr = ta.volatility.AverageTrueRange(high, low, close)
+        indicators["ATR"] = atr.average_true_range().iloc[-1]
+
+        # Bollinger Bands
+        bb = ta.volatility.BollingerBands(close)
+        indicators["BB_high"] = bb.bollinger_hband().iloc[-1]
+        indicators["BB_low"] = bb.bollinger_lband().iloc[-1]
+
+        # Volume Indicators
+        if volume is not None:
+            obv = ta.volume.OnBalanceVolumeIndicator(close, volume).on_balance_volume()
+            cmf = ta.volume.ChaikinMoneyFlowIndicator(high, low, close, volume).chaikin_money_flow()
+            indicators["OBV"] = obv.iloc[-1]
+            indicators["CMF"] = cmf.iloc[-1]
+        else:
+            indicators["OBV"] = None
+            indicators["CMF"] = None
+
+        # Last Price
+        indicators["Current Price"] = close.iloc[-1]
+
+        return indicators
+    except Exception as e:
+        return {"error": f"Failed to compute indicators: {e}"}
+
+# ========== Analyze with Groq / GPT ==========
+def analyze_with_ai(symbol, indicators):
+    prompt = f"""
+You are a professional trading assistant. Based on the following indicators for {symbol}, explain in simple terms:
+
+1. What each indicator means.
+2. What the values currently suggest.
+3. Whether to BUY or SELL.
+4. Suggested Entry, Stop Loss, and Take Profit (TP1 and TP2).
+5. Confidence Level (1 to 10).
+6. Do NOT recommend a trade if data is unclear.
+
+Indicators:
+- Current Price = {indicators['Current Price']}
+- EMA12 = {indicators['EMA12']}
+- EMA26 = {indicators['EMA26']}
+- RSI = {indicators['RSI']}
+- MACD = {indicators['MACD']} / Signal = {indicators['MACD_signal']}
+- Stochastic %K = {indicators['Stoch_K']} / %D = {indicators['Stoch_D']}
+- CCI = {indicators['CCI']}
+- ADX = {indicators['ADX']}
+- ATR = {indicators['ATR']}
+- Bollinger High = {indicators['BB_high']}, Low = {indicators['BB_low']}
+- OBV = {indicators['OBV']}
+- CMF = {indicators['CMF']}
+    """
+
+    try:
+        headers = {
+            "Authorization": f"Bearer {GROQ_API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        json_data = {
+            "model": "llama3-8b-8192",
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.3
+        }
+
+        response = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=json_data)
+        result = response.json()
+
+        return result["choices"][0]["message"]["content"]
+    except Exception as e:
+        return f"❌ AI analysis failed: {e}"
+
+# ========== Run Main Analysis ==========
+def run_analysis():
+    symbols = ["XAU/USD", "BTC/USD", "AAPL"]
+    results = []
+
+    for symbol in symbols:
+        try:
+            df = fetch_data(symbol)
+            if isinstance(df, str):
+                results.append(f"❌ Error analyzing {symbol}: {df}")
+                continue
+
+            indicators = compute_indicators(df, symbol)
+            if "error" in indicators:
+                results.append(f"❌ Error analyzing {symbol}: {indicators['error']}")
+                continue
+
+            analysis = analyze_with_ai(symbol, indicators)
+            results.append(f"📈 **Symbol**: {symbol}\n{analysis}")
+
+        except Exception as e:
+            results.append(f"❌ Unexpected error for {symbol}: {e}")
+
+    return "\n\n".join(results)
