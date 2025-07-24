@@ -5,7 +5,6 @@ import datetime as dt
 import numpy as np
 import ta
 
-from openai import OpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
