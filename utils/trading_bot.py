@@ -8,7 +8,7 @@ import datetime as dt
 import os
 
 # --- CONFIGURATION ---
-API_KEY = os.getenv("TWELVE_API_KEY")  # ✅ FIXED: matches .env key on Render
+API_KEY = os.getenv("TWELVE_API_KEY")  # ✅ Ensure your .env contains TWELVE_API_KEY
 SYMBOL = "XAU/USD"
 INTERVAL = "15min"
 LIMIT = 200
@@ -22,7 +22,10 @@ def fetch_data():
 
     df = pd.DataFrame(data["values"])
     df.rename(columns={"datetime": "time", "close": "close", "open": "open", "high": "high", "low": "low", "volume": "volume"}, inplace=True)
-    df = df.astype(float, errors='ignore')
+
+    # ✅ Fix types
+    numeric_cols = ["close", "open", "high", "low", "volume"]
+    df[numeric_cols] = df[numeric_cols].astype(float)
     df["time"] = pd.to_datetime(df["time"])
     df.sort_values("time", inplace=True)
     return df
