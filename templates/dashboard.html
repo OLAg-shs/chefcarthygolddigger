@@ -1,412 +1,121 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chef Carthy AI Trading Dashboard</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&family=Orbitron:wght@500;700&display=swap">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <style>
-        :root {
-            --bg-dark: #12121e; /* Deep dark blue-purple */
-            --bg-card: #1f1f3a; /* Slightly lighter card background */
-            --text-light: #e0e0e0;
-            --text-secondary: #a0a0b0;
-            --primary-accent: #00e5ff; /* Cyan for highlights */
-            --primary-hover: #00b3cc;
-            --button-bg: #4a4a8a; /* Darker blue for buttons */
-            --button-hover: #5a5a9a;
-            --border-color: #333355;
-            --error-color: #ff6b6b;
-            --success-color: #6bff91;
-            --header-bg: #0d0d18;
+import requests
+import pandas as pd
+import numpy as np
+from ta import add_all_ta_features
+from utils.indicator_confidence import calculate_confidence
+from utils.signal_filter import filter_trade_signal
+
+# List of symbols to analyze (you can add more that exist on Exness)
+SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD", "USD/JPY"]
+
+# Timeframe for prediction (1H)
+TIMEFRAME = "1h"
+
+# Fetch OHLCV data from TwelveData
+def fetch_market_data(symbol, interval="1h", outputsize=200):
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey=YOUR_API_KEY"
+    response = requests.get(url)
+    data = response.json()
+    if "values" not in data:
+        return None
+    df = pd.DataFrame(data["values"])
+    df = df.rename(columns={
+        "datetime": "time",
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "volume": "volume"
+    })
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.sort_values("time")
+    df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
+    return df
+
+# Analyze each symbol and return signal insight
+def analyze_symbol(symbol):
+    df = fetch_market_data(symbol)
+    if df is None:
+        return {"symbol": symbol, "error": "Data unavailable"}
+
+    df = add_all_ta_features(df, open="open", high="high", low="low", close="close", volume="volume", fillna=True)
+    latest = df.iloc[-1]
+
+    # Indicator snapshots
+    ema12 = df['trend_ema_fast'].iloc[-1]
+    ema26 = df['trend_ema_slow'].iloc[-1]
+    price = latest["close"]
+    rsi = latest['momentum_rsi']
+    macd = latest['trend_macd']
+    macd_signal = latest['trend_macd_signal']
+    stoch_k = latest['momentum_stoch_k']
+    stoch_d = latest['momentum_stoch_d']
+    cci = latest['momentum_cci']
+    adx = latest['trend_adx']
+    atr = latest['volatility_atr']
+    bb_upper = latest['volatility_bbm'] + (2 * latest['volatility_bbw'])
+    bb_lower = latest['volatility_bbm'] - (2 * latest['volatility_bbw'])
+
+    # Confidence-based filtering
+    confidence = calculate_confidence(price, ema12, ema26, rsi, macd, macd_signal, stoch_k, stoch_d, cci, adx)
+
+    if confidence < 8:
+        return {
+            "symbol": symbol,
+            "current_price": price,
+            "confidence": confidence,
+            "status": "No confirmed signal",
+            "trend": "Price < EMA12 < EMA26 → Bearish" if price < ema12 < ema26 else "Neutral/Bullish",
+            "rsi": rsi,
+            "macd": macd,
+            "macd_signal": macd_signal,
+            "stoch_k": stoch_k,
+            "stoch_d": stoch_d,
+            "cci": cci,
+            "adx": adx,
+            "atr": atr,
+            "bb_upper": bb_upper,
+            "bb_lower": bb_lower,
         }
 
-        body {
-            font-family: 'Roboto', sans-serif;
-            background-color: var(--bg-dark);
-            color: var(--text-light);
-            margin: 0;
-            padding: 0;
-            line-height: 1.6;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
+    # Generate valid trade suggestion
+    signal = filter_trade_signal(price, ema12, ema26, rsi, macd, macd_signal, stoch_k, stoch_d, cci, adx)
+    entry = price
+    sl = entry - atr if signal == "BUY" else entry + atr
+    tp1 = entry + 2 * atr if signal == "BUY" else entry - 2 * atr
+    tp2 = entry + 3 * atr if signal == "BUY" else entry - 3 * atr
 
-        header {
-            background: var(--header-bg);
-            padding: 25px 40px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-            border-bottom: 1px solid var(--border-color);
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-        }
+    return {
+        "symbol": symbol,
+        "current_price": price,
+        "signal": signal,
+        "confidence": confidence,
+        "entry": round(entry, 2),
+        "stop_loss": round(sl, 2),
+        "tp1": round(tp1, 2),
+        "tp2": round(tp2, 2),
+        "time_predictions": {
+            "1–2h": signal,
+            "3–4h": signal,
+            "1d": signal
+        },
+        "trend": "Price < EMA12 < EMA26 → Bearish" if price < ema12 < ema26 else "Neutral/Bullish",
+        "rsi": rsi,
+        "macd": macd,
+        "macd_signal": macd_signal,
+        "stoch_k": stoch_k,
+        "stoch_d": stoch_d,
+        "cci": cci,
+        "adx": adx,
+        "atr": atr,
+        "bb_upper": bb_upper,
+        "bb_lower": bb_lower,
+    }
 
-        header h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 2.2em;
-            color: var(--primary-accent);
-            margin: 0;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            text-shadow: 0 0 10px rgba(0,229,255,0.4);
-        }
-
-        .container {
-            flex-grow: 1;
-            max-width: 1400px;
-            margin: 40px auto;
-            padding: 0 25px;
-            display: grid;
-            grid-template-columns: 2fr 1fr; /* Chart wider, others narrower */
-            grid-template-rows: auto auto auto; /* Auto rows for content */
-            gap: 30px;
-        }
-
-        .card {
-            background: var(--bg-card);
-            border-radius: 15px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.4);
-            padding: 30px;
-            border: 1px solid var(--border-color);
-            backdrop-filter: blur(5px); /* Subtle blur effect */
-            -webkit-backdrop-filter: blur(5px);
-            transition: transform 0.2s ease-in-out;
-        }
-
-        .card:hover {
-            transform: translateY(-5px);
-        }
-
-        h2, h3, h4 {
-            color: var(--primary-accent);
-            margin-top: 0;
-            margin-bottom: 25px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid rgba(0,229,255,0.2);
-            font-weight: 500;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        /* Profit Chart specific styles */
-        .profit-chart-section {
-            grid-column: 1 / -1; /* Make chart span full width initially */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-
-        .profit-chart-section img {
-            width: 100%; /* Make image take full width of its container */
-            max-height: 550px; /* Max height for large screens */
-            object-fit: contain; /* Ensure image fits without cropping */
-            border-radius: 12px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-            border: 1px solid var(--border-color);
-            background-color: #0f0f2a; /* Darker background for chart area */
-        }
-
-        .insight-box {
-            padding: 25px;
-            background: var(--bg-light-card);
-            border-left: 6px solid var(--primary-accent);
-            border-radius: 10px;
-            margin-top: 20px;
-            box-shadow: inset 0 0 10px rgba(0,229,255,0.1);
-        }
-
-        .insight-box pre {
-            white-space: pre-wrap;
-            font-family: 'Roboto Mono', monospace;
-            font-size: 1rem;
-            line-height: 1.6;
-            color: var(--text-secondary);
-            margin: 0;
-            padding: 0;
-        }
-
-        .buttons {
-            display: flex;
-            gap: 20px;
-            margin-top: 30px;
-            flex-wrap: wrap;
-            justify-content: center; /* Center buttons */
-        }
-
-        button {
-            background-color: var(--button-bg);
-            color: var(--text-light);
-            border: none;
-            padding: 14px 28px;
-            border-radius: 10px;
-            cursor: pointer;
-            font-size: 1.05rem;
-            font-weight: 600;
-            transition: background-color 0.3s ease, transform 0.2s ease, box-shadow 0.3s ease;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        button:hover {
-            background-color: var(--button-hover);
-            transform: translateY(-3px);
-            box-shadow: 0 6px 15px rgba(0,0,0,0.4);
-        }
-
-        button:active {
-            transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-
-        .admin-section {
-            grid-column: 1 / -1; /* Admin section spans full width below others */
-        }
-
-        .admin-section h4 {
-            border-bottom: none;
-            padding-bottom: 0;
-            margin-top: 25px;
-            font-weight: 400;
-        }
-
-        .admin-section ul {
-            list-style-type: none;
-            padding: 0;
-            margin: 0;
-        }
-
-        .admin-section li {
-            background: var(--bg-light-card);
-            margin: 10px 0;
-            padding: 18px;
-            border-radius: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border: 1px solid rgba(0,229,255,0.1);
-            transition: background 0.2s ease;
-        }
-
-        .admin-section li:hover {
-            background: #2b2b4d;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            margin-bottom: 10px;
-            color: var(--primary-accent);
-            font-weight: 500;
-            font-size: 0.95em;
-        }
-
-        .form-group input {
-            width: calc(100% - 28px); /* Account for padding and border */
-            padding: 14px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-            background: #2a2a47; /* Darker input background */
-            color: var(--text-light);
-            font-size: 1rem;
-            transition: border-color 0.3s ease, box-shadow 0.3s ease;
-        }
-
-        .form-group input:focus {
-            border-color: var(--primary-accent);
-            box-shadow: 0 0 0 4px rgba(0,229,255,0.2);
-            outline: none;
-        }
-
-        .admin-section .error {
-            color: var(--error-color);
-            margin-top: 10px;
-            font-weight: 500;
-            background-color: rgba(255,107,107,0.1);
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid var(--error-color);
-        }
-        .admin-section .success {
-            color: var(--success-color);
-            margin-top: 10px;
-            font-weight: 500;
-            background-color: rgba(107,255,145,0.1);
-            padding: 10px;
-            border-radius: 5px;
-            border: 1px solid var(--success-color);
-        }
-
-        footer {
-            text-align: center;
-            color: #777;
-            margin-top: 50px;
-            padding: 25px;
-            font-size: 0.9em;
-            background: var(--header-bg);
-            border-top: 1px solid var(--border-color);
-        }
-
-        /* Responsive adjustments */
-        @media (max-width: 1024px) {
-            .container {
-                grid-template-columns: 1fr; /* Stack all sections on smaller screens */
-                padding: 0 20px;
-            }
-
-            .profit-chart-section, .admin-section {
-                grid-column: auto; /* Reset grid column span */
-            }
-
-            header {
-                flex-direction: column;
-                padding: 20px;
-            }
-
-            header h1 {
-                font-size: 2em;
-                margin-bottom: 20px;
-            }
-        }
-
-        @media (max-width: 600px) {
-            header h1 {
-                font-size: 1.6em;
-            }
-            .card {
-                padding: 25px 20px;
-            }
-            button {
-                padding: 12px 20px;
-                font-size: 0.95rem;
-                width: 100%;
-                justify-content: center;
-            }
-            .form-group input {
-                width: calc(100% - 24px);
-            }
-        }
-
-        /* Highlighting for entry price, take profit, and stop loss */
-        .highlight {
-            color: var(--primary-accent);
-            font-weight: bold;
-            text-shadow: 0 0 10px rgba(0,229,255,0.4);
-        }
-    </style>
-</head>
-<body>
-
-<header>
-    <h1><i class="fas fa-chart-line"></i> Chef Carthy AI Trading Dashboard</h1>
-    <form action="/logout" method="GET">
-        <button><i class="fas fa-sign-out-alt"></i> Logout</button>
-    </form>
-</header>
-
-<div class="container">
-    <div class="card profit-chart-section">
-        <h2><i class="fas fa-money-bill-wave"></i> Profit Overview</h2>
-        <div class="chart">
-            {% if chart_path %}
-                <img src="{{ chart_path }}" alt="Profit Chart">
-            {% else %}
-                <p style="color: var(--text-secondary); text-align: center;">No profit chart available. Run the bot to generate data.</p>
-            {% endif %}
-        </div>
-    </div>
-
-    <div class="card">
-        <h2><i class="fas fa-robot"></i> Latest AI Signal</h2>
-        <div class="insight-box">
-            {% if ai_insight %}
-                <pre>{{ ai_insight }}</pre>
-            {% else %}
-                <pre>No signal yet. Press "🚀 Start Bot" to run analysis and receive insights.</pre>
-            {% endif %}
-        </div>
-
-        <div class="buttons">
-            <form action="/start" method="POST">
-                <button type="submit"><i class="fas fa-rocket"></i> Start Bot</button>
-            </form>
-            <form action="/refresh_data" method="GET">
-                <button type="submit"><i class="fas fa-sync-alt"></i> Refresh Data</button>
-            </form>
-        </div>
-    </div>
-
-    {% if current_user.username == admin_user %}
-        <div class="admin-section card">
-            <h3><i class="fas fa-user-shield"></i> Admin Dashboard</h3>
-            <h4>Registered Users:</h4>
-            {% if users %}
-                <ul>
-                    {% for user in users %}
-                        <li>
-                            <span><i class="fas fa-user"></i> {{ user.username }} - {{ user.email }}</span>
-                        </li>
-                    {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color: var(--text-secondary);">No users registered yet.</p>
-            {% endif %}
-
-            <h4>Add New User:</h4>
-            <form method="POST" action="/admin/add_user">
-                <div class="form-group">
-                    <label for="new-username"><i class="fas fa-user-plus"></i> Username:</label>
-                    <input type="text" id="new-username" name="username" placeholder="Enter new username" required>
-                </div>
-                <div class="form-group">
-                    <label for="new-password"><i class="fas fa-key"></i> Password:</label>
-                    <input type="password" id="new-password" name="password" placeholder="Set password" required>
-                </div>
-                <div class="form-group">
-                    <label for="new-email"><i class="fas fa-at"></i> Email (Optional):</label>
-                    <input type="email" id="new-email" name="email" placeholder="Enter email address">
-                </div>
-                <button type="submit"><i class="fas fa-plus-circle"></i> Add User</button>
-                {% if add_user_error %}
-                    <p class="error">{{ add_user_error }}</p>
-                {% elif add_user_success %}
-                    <p class="success">{{ add_user_success }}</p>
-                {% endif %}
-            </form>
-
-            <h4>Remove User:</h4>
-            <form method="POST" action="/admin/remove_user">
-                <div class="form-group">
-                    <label for="remove-username"><i class="fas fa-user-minus"></i> Username to remove:</label>
-                    <input type="text" id="remove-username" name="username" placeholder="Enter username to remove" required>
-                </div>
-                <button type="submit"><i class="fas fa-trash-alt"></i> Remove User</button>
-                {% if remove_user_error %}
-                    <p class="error">{{ remove_user_error }}</p>
-                {% elif remove_user_success %}
-                    <p class="success">{{ remove_user_success }}</p>
-                {% endif %}
-            </form>
-        </div>
-    {% endif %}
-</div>
-
-<footer>
-    <p>Built by Maccarthy Quest &mdash; Your Smart Trading Assistant <i class="fas fa-brain"></i></p>
-    <p>&copy; 2025 All rights reserved.</p>
-</footer>
-
-</body>
-</html>
+# Main logic for multiple symbols
+def run_analysis():
+    results = []
+    for symbol in SYMBOLS:
+        result = analyze_symbol(symbol)
+        results.append(result)
+    return results
