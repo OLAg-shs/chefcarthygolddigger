@@ -3,46 +3,41 @@ import requests
 import pandas as pd
 from dotenv import load_dotenv
 
-# Load API key from .env or environment
 load_dotenv()
 TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
+BASE_URL = "https://api.twelvedata.com/time_series"
 
 def get_data(symbol, interval="1h", outputsize=100):
-    """
-    Fetches OHLCV data from Twelve Data API.
+    symbol_map = {
+        "XAU/USD": "XAU/USD",
+        "BTC/USD": "BTC/USD",
+        "AAPL": "AAPL",
+        "EUR/USD": "EUR/USD"
+    }
 
-    Args:
-        symbol (str): e.g. "XAU/USD", "AAPL", "BTC/USD"
-        interval (str): Time interval like '1h', '15min'
-        outputsize (int): Number of candles to fetch (max 5000 for paid plans)
+    mapped_symbol = symbol_map.get(symbol, symbol)
 
-    Returns:
-        pd.DataFrame or None if error
-    """
-    base_url = "https://api.twelvedata.com/time_series"
     params = {
-        "symbol": symbol,
+        "symbol": mapped_symbol,
         "interval": interval,
         "outputsize": outputsize,
-        "apikey": TWELVE_API_KEY
+        "apikey": TWELVE_API_KEY,
+        "format": "JSON"
     }
 
     try:
-        response = requests.get(base_url, params=params)
+        response = requests.get(BASE_URL, params=params)
+        response.raise_for_status()
         data = response.json()
 
-        if "status" in data and data["status"] == "error":
-            print(f"[TwelveData ERROR] {data.get('message', 'Unknown error')}")
-            return None
-
         if "values" not in data:
-            print(f"[TwelveData ERROR] No values returned for {symbol}")
+            print(f"[WARN] No 'values' in response for {symbol}: {data}")
             return None
 
         df = pd.DataFrame(data["values"])
         df = df.rename(columns={
-            "datetime": "timestamp",
+            "datetime": "datetime",
             "open": "open",
             "high": "high",
             "low": "low",
@@ -50,16 +45,16 @@ def get_data(symbol, interval="1h", outputsize=100):
             "volume": "volume"
         })
 
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df = df.sort_values("timestamp")
-        df.set_index("timestamp", inplace=True)
+        df["datetime"] = pd.to_datetime(df["datetime"])
+        df = df.sort_values("datetime")
+        df.set_index("datetime", inplace=True)
 
-        # Convert numeric columns to float
+        # Convert numeric columns
         for col in ["open", "high", "low", "close", "volume"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
 
         return df.dropna()
 
     except Exception as e:
-        print(f"[TwelveData Exception] Failed to fetch {symbol} data: {e}")
+        print(f"[ERROR] Failed to fetch data for {symbol}: {e}")
         return None
