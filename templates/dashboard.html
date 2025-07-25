@@ -1,131 +1,83 @@
-<!-- templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>AI Trading Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
     <style>
         body {
-            font-family: 'Segoe UI', sans-serif;
-            background-color: #0e0e0e;
-            color: #eee;
-            padding: 20px;
-        }
-        .container {
-            max-width: 1200px;
-            margin: auto;
-        }
-        h1 {
-            text-align: center;
-            color: #0ff;
-            margin-bottom: 40px;
-        }
-        .market {
-            margin-bottom: 60px;
-            border-bottom: 1px solid #333;
-            padding-bottom: 40px;
-        }
-        .chart {
-            width: 100%;
-            height: 500px;
-            margin-bottom: 15px;
-        }
-        .signal {
-            background: #1a1a1a;
-            border-radius: 8px;
-            padding: 15px;
-            font-size: 14px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-        }
-        .refresh-button {
-            display: block;
-            margin: 0 auto 40px auto;
-            background: #00ffaa;
-            color: #000;
-            padding: 10px 20px;
-            font-weight: bold;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-        }
-        .logout-btn {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #f00;
-            color: white;
-            padding: 10px 16px;
-            border-radius: 6px;
-            text-decoration: none;
-        }
-        .admin-panel {
-            margin-top: 60px;
-            padding: 20px;
-            background: #111;
-            border-radius: 10px;
-        }
-        .admin-panel input {
-            width: 100%;
-            padding: 10px;
-            margin: 10px 0;
-            background: #000;
-            border: 1px solid #555;
+            background-color: #111;
             color: #fff;
         }
-        .admin-panel button {
-            width: 100%;
-            background: #0f0;
-            color: black;
-            padding: 10px;
-            font-weight: bold;
+        .card {
+            background-color: #1e1e1e;
             border: none;
-            border-radius: 6px;
-            cursor: pointer;
+            margin-bottom: 20px;
+        }
+        .card-header {
+            background-color: #222;
+            font-weight: bold;
+        }
+        .tv-chart {
+            height: 500px;
+            margin-bottom: 30px;
+        }
+        .logout {
+            position: absolute;
+            top: 20px;
+            right: 30px;
         }
     </style>
 </head>
 <body>
-
-    <a href="/logout" class="logout-btn">Logout</a>
-
-    <div class="container">
-        <h1>💹 AI Trading Dashboard</h1>
-
-        <form method="POST" action="/refresh">
-            <button type="submit" class="refresh-button">🚀 Start Boy – Refresh Live Predictions</button>
-        </form>
-
-        {% for insight in market_insights %}
-        <div class="market">
-            <!-- TradingView chart -->
-            <div class="chart">
-                <iframe
-                    src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#%7B%22symbol%22%3A%22{{ insight.symbol }}%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A500%2C%22locale%22%3A%22en%22%2C%22dateRange%22%3A%22auto%22%2C%22colorTheme%22%3A%22dark%22%7D"
-                    width="100%" height="500" frameborder="0" allowtransparency="true" scrolling="no">
-                </iframe>
-            </div>
-
-            <!-- Signal + Analysis -->
-            <div class="signal">
-                <strong>Current Price:</strong> {{ insight.current_price }}<br><br>
-                <strong>Prediction:</strong><br>
-                {{ insight.signal }}
-            </div>
-        </div>
-        {% endfor %}
-
-        {% if session.user == 'admin' %}
-        <div class="admin-panel">
-            <h2>Add New User</h2>
-            <form method="POST" action="/add_user">
-                <input type="text" name="username" placeholder="New Username" required>
-                <input type="password" name="password" placeholder="New Password" required>
-                <button type="submit">Add User</button>
-            </form>
-        </div>
-        {% endif %}
+<div class="container mt-4">
+    <h1 class="text-center mb-4">⚡️ AI Trading Dashboard</h1>
+    <div class="logout">
+        <a href="/logout" class="btn btn-danger">Logout</a>
     </div>
 
+    {% for market in market_insights %}
+    <div class="card">
+        <div class="card-header">
+            📊 {{ market.symbol }}
+        </div>
+        <div class="card-body">
+            <!-- TradingView Chart Widget -->
+            <div class="tv-chart" id="chart-{{ loop.index }}"></div>
+            <p><strong>Current Price:</strong> {{ market.current_price }}</p>
+            <pre style="white-space: pre-wrap;">{{ market.signal }}</pre>
+        </div>
+    </div>
+    {% endfor %}
+
+    <div class="text-center">
+        <a href="/" class="btn btn-warning btn-lg mt-3">🔄 Refresh Predictions</a>
+    </div>
+</div>
+
+<!-- TradingView Widget JS -->
+<script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+<script>
+    const symbols = {{ market_insights | tojson }};
+    symbols.forEach((market, index) => {
+        new TradingView.widget({
+            container_id: `chart-${index + 1}`,
+            width: "100%",
+            height: 500,
+            symbol: market.symbol,
+            interval: "60",
+            timezone: "Etc/UTC",
+            theme: "dark",
+            style: "1",
+            locale: "en",
+            toolbar_bg: "#222",
+            enable_publishing: false,
+            hide_top_toolbar: true,
+            hide_legend: true,
+            withdateranges: true,
+            save_image: false
+        });
+    });
+</script>
 </body>
 </html>
