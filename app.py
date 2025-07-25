@@ -5,7 +5,8 @@ from utils.indicator_utils import (
     detect_price_action,
     detect_break_retest
 )
-from groq_api import get_groq_prediction  # Ensure this exists or mock it
+from utils.groq_api import get_groq_prediction
+  # Ensure this exists or mock it
 
 # Symbols to analyze
 SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD"]
