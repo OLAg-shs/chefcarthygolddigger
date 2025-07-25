@@ -7,98 +7,118 @@
     <style>
         body {
             font-family: 'Segoe UI', sans-serif;
-            background-color: #111;
+            background-color: #0e0e0e;
             color: #eee;
             padding: 20px;
         }
         .container {
-            max-width: 1100px;
+            max-width: 1200px;
             margin: auto;
         }
         h1 {
             text-align: center;
             color: #0ff;
+            margin-bottom: 40px;
         }
-        .market-section {
+        .market {
             margin-bottom: 60px;
             border-bottom: 1px solid #333;
             padding-bottom: 40px;
         }
-        .tv-chart {
+        .chart {
+            width: 100%;
             height: 500px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
-        .insight {
-            background: #222;
-            padding: 15px;
+        .signal {
+            background: #1a1a1a;
             border-radius: 8px;
+            padding: 15px;
             font-size: 14px;
-            white-space: pre-wrap;
             line-height: 1.6;
+            white-space: pre-wrap;
         }
-        .logout {
+        .refresh-button {
+            display: block;
+            margin: 0 auto 40px auto;
+            background: #00ffaa;
+            color: #000;
+            padding: 10px 20px;
+            font-weight: bold;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+        .logout-btn {
             position: fixed;
             top: 20px;
             right: 20px;
-            background: #f33;
+            background: #f00;
             color: white;
-            padding: 10px 15px;
-            text-decoration: none;
+            padding: 10px 16px;
             border-radius: 6px;
+            text-decoration: none;
         }
-        .add-user-form {
-            background: #1c1c1c;
+        .admin-panel {
+            margin-top: 60px;
             padding: 20px;
-            margin-top: 40px;
+            background: #111;
             border-radius: 10px;
         }
-        .add-user-form input {
+        .admin-panel input {
+            width: 100%;
             padding: 10px;
             margin: 10px 0;
-            width: 100%;
             background: #000;
             border: 1px solid #555;
             color: #fff;
         }
-        .add-user-form button {
-            background: #0f0;
-            border: none;
-            padding: 10px;
-            cursor: pointer;
+        .admin-panel button {
             width: 100%;
+            background: #0f0;
+            color: black;
+            padding: 10px;
+            font-weight: bold;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
         }
     </style>
 </head>
 <body>
-    <a href="/logout" class="logout">Logout</a>
+
+    <a href="/logout" class="logout-btn">Logout</a>
 
     <div class="container">
-        <h1>📊 AI Trading Insights</h1>
+        <h1>💹 AI Trading Dashboard</h1>
+
+        <form method="POST" action="/refresh">
+            <button type="submit" class="refresh-button">🚀 Start Boy – Refresh Live Predictions</button>
+        </form>
 
         {% for insight in market_insights %}
-            {% if insight.symbol %}
-                <div class="market-section">
-                    <!-- TradingView Chart -->
-                    <div class="tv-chart">
-                        <iframe
-                            src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#%7B%22symbol%22%3A%22{{ insight.symbol }}%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A500%2C%22locale%22%3A%22en%22%2C%22dateRange%22%3A%22auto%22%2C%22colorTheme%22%3A%22dark%22%7D"
-                            width="100%" height="500" frameborder="0" allowtransparency="true" scrolling="no">
-                        </iframe>
-                    </div>
+        <div class="market">
+            <!-- TradingView chart -->
+            <div class="chart">
+                <iframe
+                    src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#%7B%22symbol%22%3A%22{{ insight.symbol }}%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A500%2C%22locale%22%3A%22en%22%2C%22dateRange%22%3A%22auto%22%2C%22colorTheme%22%3A%22dark%22%7D"
+                    width="100%" height="500" frameborder="0" allowtransparency="true" scrolling="no">
+                </iframe>
+            </div>
 
-                    <!-- Analysis -->
-                    <div class="insight">
-                        <strong>Current Price:</strong> {{ insight.current_price }}<br><br>
-                        {{ insight.signal }}
-                    </div>
-                </div>
-            {% endif %}
+            <!-- Signal + Analysis -->
+            <div class="signal">
+                <strong>Current Price:</strong> {{ insight.current_price }}<br><br>
+                <strong>Prediction:</strong><br>
+                {{ insight.signal }}
+            </div>
+        </div>
         {% endfor %}
 
         {% if session.user == 'admin' %}
-        <div class="add-user-form">
+        <div class="admin-panel">
             <h2>Add New User</h2>
-            <form action="/add_user" method="POST">
+            <form method="POST" action="/add_user">
                 <input type="text" name="username" placeholder="New Username" required>
                 <input type="password" name="password" placeholder="New Password" required>
                 <button type="submit">Add User</button>
@@ -106,5 +126,6 @@
         </div>
         {% endif %}
     </div>
+
 </body>
 </html>
