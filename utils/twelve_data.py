@@ -1,45 +1,22 @@
-import os
 import requests
+import os
 import pandas as pd
 
-API_KEY = os.getenv("TWELVE_API_KEY")
+TWELVE_API_KEY = os.getenv("TWELVE_API_KEY")
 
-def get_data(symbol, interval="1h", outputsize=200):
-    url = f"https://api.twelvedata.com/time_series"
-    params = {
-        "symbol": symbol,
-        "interval": interval,
-        "apikey": API_KEY,
-        "outputsize": outputsize,
-        "format": "JSON"
-    }
+def get_data(symbol, interval="1h", outputsize=100):
+    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey={TWELVE_API_KEY}"
+    response = requests.get(url)
+    data = response.json()
 
-    try:
-        response = requests.get(url, params=params)
-        data = response.json()
-        if "values" not in data:
-            print(f"⚠️ API error for {symbol}: {data.get('message')}")
-            return None
-
-        df = pd.DataFrame(data["values"])
-        df = df.rename(columns={
-            "datetime": "time",
-            "open": "open",
-            "high": "high",
-            "low": "low",
-            "close": "close",
-            "volume": "volume"
-        })
-        df["time"] = pd.to_datetime(df["time"])
-        df = df.astype({
-            "open": float,
-            "high": float,
-            "low": float,
-            "close": float,
-            "volume": float
-        })
-        df = df.sort_values("time").reset_index(drop=True)
-        return df
-    except Exception as e:
-        print(f"❌ Error fetching data for {symbol}: {e}")
+    if "values" not in data:
         return None
+
+    df = pd.DataFrame(data["values"])
+    df = df.rename(columns={"datetime": "timestamp"})
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df = df.sort_values("timestamp")
+    df.set_index("timestamp", inplace=True)
+
+    df = df.astype(float)
+    return df
