@@ -58,10 +58,13 @@
     <div class="container">
         {% for insight in market_insights %}
             <div class="card">
-                {{ insight.text }}
+                <h2 style="color:#00ffaa; font-size: 20px;">{{ insight.symbol }}</h2>
+                <pre style="white-space: pre-wrap; color: #00ffcc; font-size: 14px;">
+{{ insight.text }}
+                </pre>
                 <div class="tv-chart">
                     <iframe
-                        src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_bf5b2&symbol={{ insight.symbol|replace('/', '') }}&interval=60&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=rgba(0,0,0,1)&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidevolume=0&allow_symbol_change=true"
+                        src="https://s.tradingview.com/widgetembed/?frameElementId=tv_{{ loop.index }}&symbol={{ insight.symbol|replace('/', '') }}&interval=60&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=rgba(0,0,0,1)&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidevolume=0&allow_symbol_change=true"
                         width="100%"
                         height="100%"
                         frameborder="0"
