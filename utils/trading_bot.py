@@ -11,7 +11,7 @@ API_KEY = os.getenv("TWELVE_API_KEY")
 SYMBOL = "XAU/USD"
 INTERVAL = "1h"
 LIMIT = 200
-CONFIDENCE_THRESHOLD = 8  # only trades ≥8/10
+CONFIDENCE_THRESHOLD = 8  # Minimum confidence required
 
 def fetch_data(symbol=SYMBOL):
     url = (
@@ -39,26 +39,25 @@ def compute_indicators(df):
     low = df["low"]
     volume = df["volume"] if "volume" in df.columns else None
 
-    indicators = {}
-    indicators["price"] = close.iloc[-1]
-    indicators["ema12"] = ta.trend.EMAIndicator(close, window=12).ema_indicator().iloc[-1]
-    indicators["ema26"] = ta.trend.EMAIndicator(close, window=26).ema_indicator().iloc[-1]
-    indicators["rsi"] = ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1]
-    macd = ta.trend.MACD(close, window_slow=26, window_fast=12, window_sign=9)
-    indicators["macd"] = macd.macd().iloc[-1]
-    indicators["macd_signal"] = macd.macd_signal().iloc[-1]
-    indicators["stoch_k"] = ta.momentum.StochasticOscillator(high, low, close, window=14, smooth_window=3).stoch().iloc[-1]
-    indicators["stoch_d"] = ta.momentum.StochasticOscillator(high, low, close, window=14, smooth_window=3).stoch_signal().iloc[-1]
-    indicators["cci"] = ta.trend.CCIIndicator(high, low, close, window=20).cci().iloc[-1]
-    indicators["adx"] = ta.trend.ADXIndicator(high, low, close, window=14).adx().iloc[-1]
-    indicators["atr"] = ta.volatility.AverageTrueRange(high, low, close, window=14).average_true_range().iloc[-1]
-    bb = ta.volatility.BollingerBands(close, window=20, window_dev=2)
-    indicators["bb_high"] = bb.bollinger_hband().iloc[-1]
-    indicators["bb_low"] = bb.bollinger_lband().iloc[-1]
+    indicators = {
+        "price": close.iloc[-1],
+        "ema12": ta.trend.EMAIndicator(close, window=12).ema_indicator().iloc[-1],
+        "ema26": ta.trend.EMAIndicator(close, window=26).ema_indicator().iloc[-1],
+        "rsi": ta.momentum.RSIIndicator(close, window=14).rsi().iloc[-1],
+        "macd": ta.trend.MACD(close).macd().iloc[-1],
+        "macd_signal": ta.trend.MACD(close).macd_signal().iloc[-1],
+        "stoch_k": ta.momentum.StochasticOscillator(high, low, close).stoch().iloc[-1],
+        "stoch_d": ta.momentum.StochasticOscillator(high, low, close).stoch_signal().iloc[-1],
+        "cci": ta.trend.CCIIndicator(high, low, close).cci().iloc[-1],
+        "adx": ta.trend.ADXIndicator(high, low, close).adx().iloc[-1],
+        "atr": ta.volatility.AverageTrueRange(high, low, close).average_true_range().iloc[-1],
+        "bb_high": ta.volatility.BollingerBands(close).bollinger_hband().iloc[-1],
+        "bb_low": ta.volatility.BollingerBands(close).bollinger_lband().iloc[-1],
+    }
 
     if volume is not None:
         indicators["obv"] = ta.volume.OnBalanceVolumeIndicator(close, volume).on_balance_volume().iloc[-1]
-        indicators["cmf"] = ta.volume.ChaikinMoneyFlowIndicator(high, low, close, volume, window=20).chaikin_money_flow().iloc[-1]
+        indicators["cmf"] = ta.volume.ChaikinMoneyFlowIndicator(high, low, close, volume).chaikin_money_flow().iloc[-1]
     else:
         indicators["obv"] = None
         indicators["cmf"] = None
@@ -69,7 +68,7 @@ def analyze_and_signal(ind):
     msgs = []
     price = ind["price"]
 
-    # Trend via EMAs
+    # --- TREND CHECK (EMA) ---
     if price > ind["ema12"] > ind["ema26"]:
         trend = "Bullish"
         msgs.append("📈 Price > EMA12 > EMA26 → Bullish trend")
@@ -78,55 +77,64 @@ def analyze_and_signal(ind):
         msgs.append("📉 Price < EMA12 < EMA26 → Bearish trend")
     else:
         trend = "Neutral"
-        msgs.append("🔁 Price/EMAs misaligned → Sideways/uncertain market")
+        msgs.append("🔁 Price/EMAs misaligned → Sideways/uncertain")
 
-    # Indicator checks
-    msgs.append(f"💠 RSI = {ind['rsi']:.2f} → {'Oversold' if ind['rsi']<30 else 'Overbought' if ind['rsi']>70 else 'Neutral'}")
-    msgs.append(f"💠 MACD = {ind['macd']:.2f}, Signal = {ind['macd_signal']:.2f} → {'Bullish crossover' if ind['macd']>ind['macd_signal'] else 'Bearish crossover'}")
-    msgs.append(f"💠 Stoch K/D = {ind['stoch_k']:.2f}/{ind['stoch_d']:.2f} → {'Oversold' if ind['stoch_k']<20 else 'Overbought' if ind['stoch_k']>80 else 'Neutral'}")
-    msgs.append(f"💠 CCI = {ind['cci']:.2f} → {'Bullish' if ind['cci']>100 else 'Bearish' if ind['cci']<-100 else 'Neutral'}")
-    msgs.append(f"💠 ADX = {ind['adx']:.2f} → {'Strong trend' if ind['adx']>=25 else 'Weak trend'}")
-    msgs.append(f"💠 ATR = {ind['atr']:.2f} (volatility)")
-    volflow = "Positive" if ind["cmf"] and ind["cmf"] > 0 else "Negative" if ind["cmf"] else "N/A"
-    msgs.append(f"💠 CMF = {ind.get('cmf', 'N/A')} → {volflow}")
+    # --- INDICATORS LOG ---
+    msgs.append(f"💠 RSI = {ind['rsi']:.2f}")
+    msgs.append(f"💠 MACD = {ind['macd']:.2f}, Signal = {ind['macd_signal']:.2f}")
+    msgs.append(f"💠 Stochastic K/D = {ind['stoch_k']:.2f}/{ind['stoch_d']:.2f}")
+    msgs.append(f"💠 CCI = {ind['cci']:.2f}")
+    msgs.append(f"💠 ADX = {ind['adx']:.2f}")
+    msgs.append(f"💠 ATR = {ind['atr']:.2f}")
+    msgs.append(f"💠 Bollinger Bands = {ind['bb_low']:.2f} - {ind['bb_high']:.2f}")
 
-    # Count confirmations
-    conf = 0
-    if trend == "Bullish" and ind["adx"] >=25: conf +=1
-    if ind["rsi"]<70 and ind["rsi"]>30: conf+=1
-    if ind["macd"] > ind["macd_signal"]: conf+=1
-    if ind["stoch_k"] > ind["stoch_d"] and ind["stoch_k"]<80: conf+=1
-    if ind["cci"]>0: conf+=1
+    if ind["cmf"] is not None:
+        msgs.append(f"💠 CMF = {ind['cmf']:.2f}")
 
-    # Determine bias only if enough confirmations
-    if conf >=4:
-        bias = "BUY" if trend=="Bullish" else "SELL"
-    else:
-        bias = "HOLD"
+    # --- CONFIRMATION SCORING ---
+    confirmations = 0
+    if trend == "Bullish" and ind["adx"] >= 25: confirmations += 1
+    if trend == "Bearish" and ind["adx"] >= 25: confirmations += 1
+    if ind["macd"] > ind["macd_signal"]: confirmations += 1
+    if ind["rsi"] < 70 and ind["rsi"] > 30: confirmations += 1
+    if ind["stoch_k"] > ind["stoch_d"]: confirmations += 1
+    if ind["cci"] > 0: confirmations += 1
 
-    # Confidence rating scaled
-    confidence = int(10 * (conf / 5))
+    confidence = int((confirmations / 6) * 10)
 
-    if bias=="HOLD" or confidence < CONFIDENCE_THRESHOLD:
-        return "\n".join(msgs) + f"\n⚠️ No confirmed trade signal — confidence {confidence}/10"
+    if confidence < CONFIDENCE_THRESHOLD:
+        return f"⚠️ No confirmed signal (Confidence: {confidence}/10)\n" + "\n".join(msgs)
 
-    sl = price - ind["atr"] if bias=="BUY" else price + ind["atr"]
-    tp1 = price + 2*ind["atr"] if bias=="BUY" else price - 2*ind["atr"]
-    tp2 = price + 3*ind["atr"] if bias=="BUY" else price - 3*ind["atr"]
+    bias = "BUY" if trend == "Bullish" else "SELL"
 
-    msgs.append(f"🎯 Bias = {bias} (Confidence: {confidence}/10)")
-    msgs.append(f"🔹 Entry Price: {price:.2f}")
-    msgs.append(f"🔻 Stop Loss: {sl:.2f}")
-    msgs.append(f"🔺 Take Profit 1: {tp1:.2f}")
-    msgs.append(f"🔺 Take Profit 2: {tp2:.2f}")
+    # --- ENTRY, SL, TP ---
+    atr = ind["atr"]
+    sl = price - atr if bias == "BUY" else price + atr
+    tp1 = price + 2 * atr if bias == "BUY" else price - 2 * atr
+    tp2 = price + 3 * atr if bias == "BUY" else price - 3 * atr
 
-    return "\n".join(msgs)
+    # --- SHORT-TERM FORECASTS ---
+    msg = f"""
+📊 Symbol: {SYMBOL}
+💵 Current Price: {price:.2f}
+🎯 Bias: {bias}
+🔥 Confidence: {confidence}/10
+
+🔹 Entry: {price:.2f}
+🔻 SL: {sl:.2f}
+🔺 TP1 (1–2h): {tp1:.2f}
+🔺 TP2 (3–4h): {tp2:.2f}
+🕒 1D Forecast: {'Uptrend' if bias=='BUY' else 'Downtrend'}
+
+{chr(10).join(msgs)}
+    """
+    return msg.strip()
 
 def run_analysis():
     try:
         df = fetch_data()
         ind = compute_indicators(df)
         signal = analyze_and_signal(ind)
-        return f"🧠 AI Trading Insight:\n\n📈 **Symbol**: {SYMBOL}\n\n" + signal
+        return "🧠 AI Trading Insight\n\n" + signal
     except Exception as e:
         return f"❌ Error: {e}"
