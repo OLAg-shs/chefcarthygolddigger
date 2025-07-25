@@ -1,19 +1,22 @@
 import sys
 import os
-import time 
+import time
 
-# Add root directory to Python path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# ✅ Add root and utils/ folder to Python path
+base_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(base_dir)
+sys.path.append(os.path.join(base_dir, "utils"))
 
-from utils.twelve_data import get_data
-from utils.indicator_utils import (
+# ✅ Import functions directly from utils/ modules
+from twelve_data import get_data
+from indicator_utils import (
     analyze_indicators,
     detect_price_action,
     detect_break_retest
 )
-from utils.groq_api import get_groq_prediction  # ✅ This works if file exists in utils/
+from groq_api import get_groq_prediction
 
-# Symbols to analyze
+# ✅ Symbols to analyze
 SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD"]
 
 def run_analysis():
@@ -21,7 +24,7 @@ def run_analysis():
 
     for symbol in SYMBOLS:
         try:
-            # Fetch latest OHLCV data (1H)
+            # 📊 Fetch latest OHLCV data (1H timeframe)
             df = get_data(symbol, interval="1h", outputsize=100)
             if df is None or df.empty:
                 insights.append({
@@ -30,19 +33,19 @@ def run_analysis():
                 })
                 continue
 
-            # Analyze indicators
+            # 📈 Analyze technical indicators
             indicators = analyze_indicators(df)
 
-            # Detect price action patterns
+            # 🔍 Detect price action signals
             price_action = detect_price_action(df)
 
-            # Detect break & retest logic
+            # 🧱 Detect break & retest pattern
             retest = detect_break_retest(df)
 
-            # Get AI-based signal prediction
+            # 🤖 Get AI-based prediction from Groq
             ai_result = get_groq_prediction(symbol, indicators, price_action, retest)
 
-            # Append AI insight
+            # ✅ Store insight
             insights.append({
                 "symbol": symbol,
                 "text": ai_result.get("explanation", "No explanation"),
@@ -55,7 +58,7 @@ def run_analysis():
                 "current_price": df["close"].iloc[-1]
             })
 
-            # Sleep to avoid rate-limiting (TwelveData free tier)
+            # ⏳ Sleep to avoid API rate-limiting
             time.sleep(8)
 
         except Exception as e:
