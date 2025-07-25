@@ -5,7 +5,8 @@ from ta.trend import MACD
 from ta.momentum import RSIIndicator
 from ta.volatility import BollingerBands
 from dotenv import load_dotenv
-from twelve_data import get_data  # custom module to fetch OHLCV
+from utils.twelve_data import get_data
+# custom module to fetch OHLCV
 import datetime
 
 load_dotenv()
