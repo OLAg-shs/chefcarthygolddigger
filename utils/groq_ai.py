@@ -4,7 +4,7 @@ import requests
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions"
 
-def ask_groq(prompt, model="llama3-8b-8192"):
+def get_groq_prediction(prompt, model="llama3-8b-8192"):  # ✅ Renamed
     try:
         headers = {
             "Authorization": f"Bearer {GROQ_API_KEY}",
