@@ -1,33 +1,23 @@
-<!-- templates/dashboard.html -->
-
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>AI Trading Dashboard</title>
-    <style>
-        body { font-family: Arial; margin: 0; padding: 20px; background: #f8f8f8; }
-        h1 { text-align: center; color: #222; }
-        .card {
-            background: white;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .symbol-title { font-size: 24px; margin-bottom: 10px; color: #333; }
-        pre { white-space: pre-wrap; word-wrap: break-word; }
-    </style>
+    <meta charset="UTF-8">
+    <title>AI Trading Bot Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 </head>
 <body>
-
-    <h1>🧠 AI Trading Dashboard</h1>
+    <h1>📈 AI Trading Bot Dashboard</h1>
 
     {% for result in results %}
-    <div class="card">
-        <div class="symbol-title">📊 {{ result.symbol }} — Price: {{ result.price }}</div>
-        <pre>{{ result.insight }}</pre>
-    </div>
+        <div class="market-card">
+            <h2>{{ result.symbol }}</h2>
+            <p><strong>Current Price:</strong> ${{ result.current_price }}</p>
+            <pre class="signal-output">{{ result.signal }}</pre>
+        </div>
     {% endfor %}
 
+    <footer>
+        <p>&copy; 2025 AI Trading Bot | Powered by Groq & TwelveData</p>
+    </footer>
 </body>
 </html>
