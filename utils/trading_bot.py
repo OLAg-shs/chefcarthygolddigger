@@ -1,13 +1,14 @@
 import os
 import requests
 import pandas as pd
-from ta.trend import MACD
-from ta.momentum import RSIIndicator
+from ta.trend import MACD, EMAIndicator
+from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import BollingerBands
+from ta.volume import MFIIndicator
+from ta.trend import CCIIndicator
 from dotenv import load_dotenv
 from utils.twelve_data import get_data
-# custom module to fetch OHLCV
-import datetime
+from utils.indicator_utils import detect_price_action, detect_break_retest
 
 load_dotenv()
 
@@ -25,57 +26,91 @@ TRADINGVIEW_SYMBOLS = {
 
 
 def analyze_market(df):
-    insight = ""
-
     close = df['close']
     high = df['high']
     low = df['low']
 
+    # === Indicators ===
     rsi = RSIIndicator(close).rsi()
     macd = MACD(close)
     bb = BollingerBands(close)
+    ema = EMAIndicator(close, window=50).ema_indicator()
+    stoch = StochasticOscillator(high, low, close).stoch()
+    cci = CCIIndicator(high, low, close).cci()
 
+    # === Last values ===
+    last_close = round(close.iloc[-1], 2)
     last_rsi = round(rsi.iloc[-1], 2)
     last_macd = round(macd.macd_diff().iloc[-1], 4)
     last_upper = round(bb.bollinger_hband().iloc[-1], 2)
     last_lower = round(bb.bollinger_lband().iloc[-1], 2)
-    last_close = round(close.iloc[-1], 2)
+    last_ema = round(ema.iloc[-1], 2)
+    last_stoch = round(stoch.iloc[-1], 2)
+    last_cci = round(cci.iloc[-1], 2)
 
-    rsi_signal = "Neutral"
-    if last_rsi > 70:
-        rsi_signal = "Overbought"
-    elif last_rsi < 30:
-        rsi_signal = "Oversold"
-
+    # === Logic Flags ===
+    rsi_signal = "Oversold" if last_rsi < 30 else "Overbought" if last_rsi > 70 else "Neutral"
     macd_signal = "Bullish" if last_macd > 0 else "Bearish"
+    bb_signal = "Near Support" if last_close <= last_lower else "Near Resistance" if last_close >= last_upper else "Mid Band"
+    ema_trend = "Bullish" if last_close > last_ema else "Bearish"
+    stoch_signal = "Bullish" if last_stoch < 20 else "Bearish" if last_stoch > 80 else "Neutral"
+    cci_signal = "Bullish" if last_cci > 100 else "Bearish" if last_cci < -100 else "Neutral"
 
-    bb_signal = "Near Resistance" if last_close >= last_upper else (
-        "Near Support" if last_close <= last_lower else "Mid Band")
+    # === Price Action Patterns ===
+    pattern = detect_price_action(df)
+    structure = detect_break_retest(df)
 
-    insight += f"📉 RSI: {last_rsi} ({rsi_signal})\n"
-    insight += f"📈 MACD: {last_macd} ({macd_signal})\n"
-    insight += f"📊 Bollinger: {last_close} is {bb_signal} [{last_lower} - {last_upper}]\n"
+    # === Summary text ===
+    insight = f"""📉 RSI: {last_rsi} ({rsi_signal})
+📈 MACD: {last_macd} ({macd_signal})
+📊 Bollinger Bands: {last_close} is {bb_signal} [{last_lower} - {last_upper}]
+📐 EMA(50): {last_ema} ({ema_trend})
+🔁 Stochastic RSI: {last_stoch} ({stoch_signal})
+🔃 CCI: {last_cci} ({cci_signal})
+📌 Price Action: {pattern}
+📌 Structure: {structure}
+"""
 
-    return insight, {
+    # === Agreement Check ===
+    agree_count = sum([
+        macd_signal == "Bullish" and rsi_signal in ["Oversold", "Neutral"],
+        bb_signal == "Near Support" and macd_signal == "Bullish",
+        ema_trend == "Bullish",
+        stoch_signal == "Bullish",
+        cci_signal == "Bullish"
+    ])
+
+    indicators = {
         "rsi": last_rsi,
         "macd": last_macd,
-        "bb_signal": bb_signal
+        "bb_signal": bb_signal,
+        "ema": last_ema,
+        "stoch": last_stoch,
+        "cci": last_cci,
+        "pattern": pattern,
+        "structure": structure,
+        "agreement_score": agree_count
     }
+
+    return insight, indicators
 
 
 def generate_prompt(symbol, indicator_text, indicators):
-    prompt = f"""You are a professional trading assistant.
+    prompt = f"""
+You are an expert trading assistant.
+Only give CONFIRMED trade signals that are backed by aligned indicators.
 Market: {symbol}
 Timeframe: 1H
-Current Technical Analysis:
+Indicators & Technicals:
 {indicator_text}
 
-Based on the data above:
-1. What is the overall bias (BUY, SELL, HOLD)?
-2. What is your confidence level from 1–10?
-3. Suggest Entry, Stop Loss, TP1, TP2.
-4. Explain how each indicator contributes to your decision.
-Respond in a clear format.
+Based on the analysis:
+1. What is the CONFIRMED trade signal? (BUY, SELL, HOLD)
+2. Confidence Level (1-10)?
+3. Entry, SL, TP1, TP2?
+4. Brief justification using the indicator readings above.
+
+If there is no strong agreement, say: "Hold – Not Confirmed Yet".
 """
     return prompt
 
@@ -102,14 +137,25 @@ def run_analysis():
     for symbol in SYMBOLS:
         try:
             df = get_data(symbol, interval="1h", outputsize=100)
-            if df is None or len(df) < 20:
+            if df is None or len(df) < 50:
                 continue
 
             indicator_text, indicators = analyze_market(df)
+
+            # Filter out if RSI and MACD conflict strongly
+            if indicators['rsi'] > 70 and indicators['macd'] < 0:
+                continue
+            if indicators['rsi'] < 30 and indicators['macd'] > 0:
+                continue
+
+            # Require minimum 3 agreeing indicators
+            if indicators["agreement_score"] < 3:
+                continue
+
             prompt = generate_prompt(symbol, indicator_text, indicators)
             ai_response = query_groq(prompt)
 
-            # Only keep high confidence results
+            # Extract confidence
             confidence = 0
             for line in ai_response.splitlines():
                 if "confidence" in line.lower():
@@ -118,7 +164,7 @@ def run_analysis():
                         confidence = int(digits[:2]) if len(digits) >= 2 else int(digits[0])
                     break
 
-            if confidence >= 8:
+            if confidence >= 8 and "hold" not in ai_response.lower():
                 results.append({
                     "symbol": TRADINGVIEW_SYMBOLS.get(symbol, symbol.replace("/", "")),
                     "current_price": df['close'].iloc[-1],
