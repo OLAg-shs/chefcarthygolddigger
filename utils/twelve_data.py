@@ -17,7 +17,6 @@ def get_data(symbol, interval="1h", outputsize=100):
     }
 
     mapped_symbol = symbol_map.get(symbol, symbol)
-
     params = {
         "symbol": mapped_symbol,
         "interval": interval,
@@ -26,35 +25,29 @@ def get_data(symbol, interval="1h", outputsize=100):
         "format": "JSON"
     }
 
-    try:
-        response = requests.get(BASE_URL, params=params)
-        response.raise_for_status()
-        data = response.json()
-
-        if "values" not in data:
-            print(f"[WARN] No 'values' in response for {symbol}: {data}")
-            return None
-
-        df = pd.DataFrame(data["values"])
-        df = df.rename(columns={
-            "datetime": "datetime",
-            "open": "open",
-            "high": "high",
-            "low": "low",
-            "close": "close",
-            "volume": "volume"
-        })
-
-        df["datetime"] = pd.to_datetime(df["datetime"])
-        df = df.sort_values("datetime")
-        df.set_index("datetime", inplace=True)
-
-        # Convert numeric columns
-        for col in ["open", "high", "low", "close", "volume"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-
-        return df.dropna()
-
-    except Exception as e:
-        print(f"[ERROR] Failed to fetch data for {symbol}: {e}")
+    response = requests.get(BASE_URL, params=params)
+    if response.status_code != 200:
+        print(f"[ERROR] Failed to fetch data for {symbol}: HTTP {response.status_code}")
         return None
+
+    data = response.json()
+
+    if "values" not in data:
+        print(f"[ERROR] Invalid data received for {symbol}: {data}")
+        return None
+
+    df = pd.DataFrame(data["values"])
+    df = df.rename(columns={
+        "datetime": "time",
+        "open": "open",
+        "high": "high",
+        "low": "low",
+        "close": "close",
+        "volume": "volume"
+    })
+
+    df["time"] = pd.to_datetime(df["time"])
+    df = df.sort_values("time")  # Ascending time
+    df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
+
+    return df.reset_index(drop=True)
