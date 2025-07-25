@@ -1,104 +1,98 @@
+# utils/trading_bot.py
+
+import os
+from twelve_data import get_data  # your own wrapper
+import openai
+from dotenv import load_dotenv
 import pandas as pd
-from ta import trend, momentum, volatility, volume
-from twelve_data import get_data  # Your custom wrapper
-from ai_model import get_ai_prediction  # Your AI logic (Groq/OpenAI/Local)
-import numpy as np
+import ta
+import datetime
 
-def run_analysis(symbol: str):
-    df = get_data(symbol, interval="1h", outputsize=100)
-    if df is None or df.empty:
-        return {"symbol": symbol, "ai_insight": "⚠️ No data available"}
+load_dotenv()
 
-    df.dropna(inplace=True)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD"]
+
+def calculate_indicators(df):
+    df['EMA12'] = ta.trend.ema_indicator(df['close'], window=12)
+    df['EMA26'] = ta.trend.ema_indicator(df['close'], window=26)
+    df['RSI'] = ta.momentum.rsi(df['close'], window=14)
+    macd = ta.trend.macd(df['close'])
+    df['MACD'] = macd.macd()
+    df['MACD_SIGNAL'] = macd.macd_signal()
+    stoch = ta.momentum.StochasticOscillator(df['high'], df['low'], df['close'], window=14)
+    df['STOCH_K'] = stoch.stoch()
+    df['STOCH_D'] = stoch.stoch_signal()
+    df['CCI'] = ta.trend.cci(df['high'], df['low'], df['close'], window=20)
+    df['ADX'] = ta.trend.adx(df['high'], df['low'], df['close'], window=14)
+    df['ATR'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14)
+    bb = ta.volatility.BollingerBands(df['close'])
+    df['BB_HIGH'] = bb.bollinger_hband()
+    df['BB_LOW'] = bb.bollinger_lband()
+    return df
+
+def summarize_indicators(df):
     last = df.iloc[-1]
-    close_price = last['close']
-
-    # === INDICATORS ===
-    df["EMA12"] = trend.ema_indicator(df["close"], window=12)
-    df["EMA26"] = trend.ema_indicator(df["close"], window=26)
-    df["RSI"] = momentum.rsi(df["close"], window=14)
-    macd = trend.macd_diff(df["close"])
-    df["MACD"] = macd
-    stoch_k = momentum.stoch(df["high"], df["low"], df["close"])
-    stoch_d = stoch_k.rolling(window=3).mean()
-    df["Stoch_K"] = stoch_k
-    df["Stoch_D"] = stoch_d
-    df["CCI"] = momentum.cci(df["high"], df["low"], df["close"], window=20)
-    df["ADX"] = trend.adx(df["high"], df["low"], df["close"])
-    df["ATR"] = volatility.average_true_range(df["high"], df["low"], df["close"])
-    try:
-        df["CMF"] = volume.chaikin_money_flow(df["high"], df["low"], df["close"], df["volume"])
-    except:
-        df["CMF"] = None
-    df["BB_upper"], df["BB_middle"], df["BB_lower"] = volatility.bollinger_hband(df["close"]), trend.sma_indicator(df["close"]), volatility.bollinger_lband(df["close"])
-
-    # === READ LATEST VALUES ===
-    latest = df.iloc[-1]
-    trend_bias = "Bullish" if latest["EMA12"] > latest["EMA26"] else "Bearish"
-    signal_strength = 0
-    total_signals = 0
-
-    # === SIGNAL SCORING ===
-    if trend_bias == "Bullish" and latest["RSI"] > 50:
-        signal_strength += 1
-    if latest["MACD"] > 0:
-        signal_strength += 1
-    if latest["RSI"] < 30 or latest["RSI"] > 70:
-        signal_strength += 1
-    if latest["Stoch_K"] < 20 or latest["Stoch_K"] > 80:
-        signal_strength += 1
-    if latest["CCI"] < -100 or latest["CCI"] > 100:
-        signal_strength += 1
-    if latest["ADX"] > 25:
-        signal_strength += 1
-    if latest["ATR"] > np.mean(df["ATR"][-10:]):
-        signal_strength += 1
-
-    total_signals = 7
-    confidence = round((signal_strength / total_signals) * 10, 1)
-
-    # === AI Prediction (optional) ===
-    prediction = get_ai_prediction(df[-50:]) if confidence >= 5 else "No action"
-
-    # === Entry, SL, TP (example logic) ===
-    entry = round(close_price, 2)
-    if trend_bias == "Bullish":
-        sl = round(entry - 2 * latest["ATR"], 2)
-        tp1 = round(entry + 2 * latest["ATR"], 2)
-        tp2 = round(entry + 4 * latest["ATR"], 2)
-    else:
-        sl = round(entry + 2 * latest["ATR"], 2)
-        tp1 = round(entry - 2 * latest["ATR"], 2)
-        tp2 = round(entry - 4 * latest["ATR"], 2)
-
-    # === Final Signal Output ===
-    if confidence < 8:
-        insight = f"⚠️ No confirmed signal (Confidence: {confidence}/10)"
-    else:
-        insight = f"✅ Confirmed {trend_bias} signal — {prediction} (Confidence: {confidence}/10)"
-
-    return {
-        "symbol": symbol,
-        "current_price": f"${entry}",
-        "trend": trend_bias,
-        "confidence": confidence,
-        "prediction_1_2h": prediction,
-        "prediction_3_4h": prediction,
-        "prediction_1d": prediction,
-        "entry": entry,
-        "sl": sl,
-        "tp1": tp1,
-        "tp2": tp2,
-        "ai_insight": insight,
-        "indicators": {
-            "EMA": f"{round(latest['EMA12'],2)} / {round(latest['EMA26'],2)}",
-            "RSI": round(latest["RSI"], 2),
-            "MACD": round(latest["MACD"], 2),
-            "Stoch K/D": f"{round(latest['Stoch_K'],2)} / {round(latest['Stoch_D'],2)}",
-            "CCI": round(latest["CCI"], 2),
-            "ADX": round(latest["ADX"], 2),
-            "ATR": round(latest["ATR"], 2),
-            "CMF": None if pd.isna(latest["CMF"]) else round(latest["CMF"], 2),
-            "Bollinger Bands": f"{round(latest['BB_lower'],2)} - {round(latest['BB_upper'],2)}"
-        }
+    summary = {
+        "price": round(last["close"], 2),
+        "EMA12": round(last["EMA12"], 2),
+        "EMA26": round(last["EMA26"], 2),
+        "RSI": round(last["RSI"], 2),
+        "MACD": round(last["MACD"], 2),
+        "MACD_SIGNAL": round(last["MACD_SIGNAL"], 2),
+        "STOCH_K": round(last["STOCH_K"], 2),
+        "STOCH_D": round(last["STOCH_D"], 2),
+        "CCI": round(last["CCI"], 2),
+        "ADX": round(last["ADX"], 2),
+        "ATR": round(last["ATR"], 2),
+        "BB_HIGH": round(last["BB_HIGH"], 2),
+        "BB_LOW": round(last["BB_LOW"], 2),
     }
+    return summary
+
+def ask_groq(summary, symbol):
+    openai.api_key = GROQ_API_KEY
+    indicators = "\n".join([f"{k} = {v}" for k, v in summary.items() if k != "price"])
+    prompt = f"""
+You are a trading expert. Analyze the following indicators for {symbol} on the 1H chart and predict:
+
+- 1–2 hour trend
+- 3–4 hour trend
+- 1 day trend
+- Whether it's a confirmed trade signal or not
+- Confidence score out of 10
+- Explain WHY based on indicators
+
+Current Price = {summary['price']}
+Indicators:
+{indicators}
+    """.strip()
+
+    response = openai.ChatCompletion.create(
+        model="llama3-8b-8192",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5,
+    )
+    return response.choices[0].message.content.strip()
+
+def run_analysis():
+    results = []
+    for symbol in SYMBOLS:
+        try:
+            df = get_data(symbol, interval="1h", outputsize=100)
+            df = calculate_indicators(df)
+            summary = summarize_indicators(df)
+            insight = ask_groq(summary, symbol)
+            results.append({
+                "symbol": symbol,
+                "price": summary["price"],
+                "insight": insight
+            })
+        except Exception as e:
+            results.append({
+                "symbol": symbol,
+                "price": "N/A",
+                "insight": f"⚠️ Error fetching or analyzing data: {str(e)}"
+            })
+    return results
