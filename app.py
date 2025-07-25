@@ -14,7 +14,7 @@ from indicator_utils import (
     detect_price_action,
     detect_break_retest
 )
-from groq_api import get_groq_prediction
+from utils.groq_api import get_groq_prediction
 
 # ✅ Symbols to analyze
 SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD"]
