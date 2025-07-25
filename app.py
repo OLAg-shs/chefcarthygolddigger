@@ -1,4 +1,10 @@
-import time
+import sys
+import os
+import time 
+
+# Add root directory to Python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 from utils.twelve_data import get_data
 from utils.indicator_utils import (
     analyze_indicators,
