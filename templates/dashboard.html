@@ -1,121 +1,33 @@
-import requests
-import pandas as pd
-import numpy as np
-from ta import add_all_ta_features
-from utils.indicator_confidence import calculate_confidence
-from utils.signal_filter import filter_trade_signal
+<!-- templates/dashboard.html -->
 
-# List of symbols to analyze (you can add more that exist on Exness)
-SYMBOLS = ["XAU/USD", "BTC/USD", "AAPL", "EUR/USD", "USD/JPY"]
-
-# Timeframe for prediction (1H)
-TIMEFRAME = "1h"
-
-# Fetch OHLCV data from TwelveData
-def fetch_market_data(symbol, interval="1h", outputsize=200):
-    url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval={interval}&outputsize={outputsize}&apikey=YOUR_API_KEY"
-    response = requests.get(url)
-    data = response.json()
-    if "values" not in data:
-        return None
-    df = pd.DataFrame(data["values"])
-    df = df.rename(columns={
-        "datetime": "time",
-        "open": "open",
-        "high": "high",
-        "low": "low",
-        "close": "close",
-        "volume": "volume"
-    })
-    df["time"] = pd.to_datetime(df["time"])
-    df = df.sort_values("time")
-    df[["open", "high", "low", "close", "volume"]] = df[["open", "high", "low", "close", "volume"]].astype(float)
-    return df
-
-# Analyze each symbol and return signal insight
-def analyze_symbol(symbol):
-    df = fetch_market_data(symbol)
-    if df is None:
-        return {"symbol": symbol, "error": "Data unavailable"}
-
-    df = add_all_ta_features(df, open="open", high="high", low="low", close="close", volume="volume", fillna=True)
-    latest = df.iloc[-1]
-
-    # Indicator snapshots
-    ema12 = df['trend_ema_fast'].iloc[-1]
-    ema26 = df['trend_ema_slow'].iloc[-1]
-    price = latest["close"]
-    rsi = latest['momentum_rsi']
-    macd = latest['trend_macd']
-    macd_signal = latest['trend_macd_signal']
-    stoch_k = latest['momentum_stoch_k']
-    stoch_d = latest['momentum_stoch_d']
-    cci = latest['momentum_cci']
-    adx = latest['trend_adx']
-    atr = latest['volatility_atr']
-    bb_upper = latest['volatility_bbm'] + (2 * latest['volatility_bbw'])
-    bb_lower = latest['volatility_bbm'] - (2 * latest['volatility_bbw'])
-
-    # Confidence-based filtering
-    confidence = calculate_confidence(price, ema12, ema26, rsi, macd, macd_signal, stoch_k, stoch_d, cci, adx)
-
-    if confidence < 8:
-        return {
-            "symbol": symbol,
-            "current_price": price,
-            "confidence": confidence,
-            "status": "No confirmed signal",
-            "trend": "Price < EMA12 < EMA26 → Bearish" if price < ema12 < ema26 else "Neutral/Bullish",
-            "rsi": rsi,
-            "macd": macd,
-            "macd_signal": macd_signal,
-            "stoch_k": stoch_k,
-            "stoch_d": stoch_d,
-            "cci": cci,
-            "adx": adx,
-            "atr": atr,
-            "bb_upper": bb_upper,
-            "bb_lower": bb_lower,
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Trading Dashboard</title>
+    <style>
+        body { font-family: Arial; margin: 0; padding: 20px; background: #f8f8f8; }
+        h1 { text-align: center; color: #222; }
+        .card {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
+        .symbol-title { font-size: 24px; margin-bottom: 10px; color: #333; }
+        pre { white-space: pre-wrap; word-wrap: break-word; }
+    </style>
+</head>
+<body>
 
-    # Generate valid trade suggestion
-    signal = filter_trade_signal(price, ema12, ema26, rsi, macd, macd_signal, stoch_k, stoch_d, cci, adx)
-    entry = price
-    sl = entry - atr if signal == "BUY" else entry + atr
-    tp1 = entry + 2 * atr if signal == "BUY" else entry - 2 * atr
-    tp2 = entry + 3 * atr if signal == "BUY" else entry - 3 * atr
+    <h1>🧠 AI Trading Dashboard</h1>
 
-    return {
-        "symbol": symbol,
-        "current_price": price,
-        "signal": signal,
-        "confidence": confidence,
-        "entry": round(entry, 2),
-        "stop_loss": round(sl, 2),
-        "tp1": round(tp1, 2),
-        "tp2": round(tp2, 2),
-        "time_predictions": {
-            "1–2h": signal,
-            "3–4h": signal,
-            "1d": signal
-        },
-        "trend": "Price < EMA12 < EMA26 → Bearish" if price < ema12 < ema26 else "Neutral/Bullish",
-        "rsi": rsi,
-        "macd": macd,
-        "macd_signal": macd_signal,
-        "stoch_k": stoch_k,
-        "stoch_d": stoch_d,
-        "cci": cci,
-        "adx": adx,
-        "atr": atr,
-        "bb_upper": bb_upper,
-        "bb_lower": bb_lower,
-    }
+    {% for result in results %}
+    <div class="card">
+        <div class="symbol-title">📊 {{ result.symbol }} — Price: {{ result.price }}</div>
+        <pre>{{ result.insight }}</pre>
+    </div>
+    {% endfor %}
 
-# Main logic for multiple symbols
-def run_analysis():
-    results = []
-    for symbol in SYMBOLS:
-        result = analyze_symbol(symbol)
-        results.append(result)
-    return results
+</body>
+</html>
