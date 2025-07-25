@@ -2,76 +2,75 @@ import pandas as pd
 import numpy as np
 import ta
 
-def compute_indicators(df):
-    try:
-        # Ensure proper column names
-        df.columns = [col.lower() for col in df.columns]
-
-        # Technical Indicators
-        df['ema12'] = ta.trend.ema_indicator(df['close'], window=12)
-        df['ema26'] = ta.trend.ema_indicator(df['close'], window=26)
-        df['macd'] = ta.trend.macd_diff(df['close'])
-        df['rsi'] = ta.momentum.rsi(df['close'], window=14)
-        df['stoch_rsi'] = ta.momentum.stochrsi_k(df['close'])
-        df['cci'] = ta.trend.cci(df['high'], df['low'], df['close'], window=20)
-        df['atr'] = ta.volatility.average_true_range(df['high'], df['low'], df['close'], window=14)
-        boll = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
-        df['boll_upper'] = boll.bollinger_hband()
-        df['boll_lower'] = boll.bollinger_lband()
-        df['adx'] = ta.trend.adx(df['high'], df['low'], df['close'], window=14)
-
-        return df.dropna()
-    except Exception as e:
-        print(f"❌ Error computing indicators: {e}")
-        return df
-
+def calculate_macd_rsi_bbands(df):
+    df['rsi'] = ta.momentum.RSIIndicator(df['close'], window=14).rsi()
+    macd = ta.trend.MACD(df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    bb = ta.volatility.BollingerBands(df['close'], window=20, window_dev=2)
+    df['bb_upper'] = bb.bollinger_hband()
+    df['bb_lower'] = bb.bollinger_lband()
+    df['bb_middle'] = bb.bollinger_mavg()
+    df['atr'] = ta.volatility.AverageTrueRange(df['high'], df['low'], df['close'], window=14).average_true_range()
+    df['ema_20'] = ta.trend.EMAIndicator(df['close'], window=20).ema_indicator()
+    df['ema_50'] = ta.trend.EMAIndicator(df['close'], window=50).ema_indicator()
+    return df
 
 def detect_price_action(df):
-    try:
-        latest = df.iloc[-2:]  # Use last two candles for pattern detection
-        signals = {
-            "pin_bar": False,
-            "doji": False,
-            "break_retest": False,
-            "trend_support": False,
-        }
+    candles = []
+    for i in range(2, len(df)):
+        open_, close, high, low = df.loc[i, ['open', 'close', 'high', 'low']]
+        body = abs(close - open_)
+        range_ = high - low
+        upper_shadow = high - max(open_, close)
+        lower_shadow = min(open_, close) - low
 
-        candle = latest.iloc[-1]
-        body = abs(candle["close"] - candle["open"])
-        upper_wick = candle["high"] - max(candle["close"], candle["open"])
-        lower_wick = min(candle["close"], candle["open"]) - candle["low"]
+        # Pin bar
+        if lower_shadow > body * 2 and body < range_ * 0.3:
+            candles.append('bullish_pin_bar')
+        elif upper_shadow > body * 2 and body < range_ * 0.3:
+            candles.append('bearish_pin_bar')
+        # Doji
+        elif body < range_ * 0.1:
+            candles.append('doji')
+        else:
+            candles.append('normal')
+    candles = ['normal', 'normal'] + candles
+    df['candle_type'] = candles
+    return df
 
-        # ✅ Pin Bar (long wick, small body)
-        if body < (upper_wick + lower_wick) and (upper_wick > body * 2 or lower_wick > body * 2):
-            signals["pin_bar"] = True
+def detect_break_retest(df, lookback=10):
+    """
+    Basic break-and-retest detection:
+    - Breaks a resistance (recent high), then closes above it
+    - Then returns near that level within next few candles (retest)
+    """
+    df['break_retest'] = 'none'
+    for i in range(lookback, len(df) - 2):
+        recent_high = df['high'][i - lookback:i].max()
+        recent_low = df['low'][i - lookback:i].min()
+        close = df.loc[i, 'close']
+        next_close = df.loc[i + 1, 'close']
 
-        # ✅ Doji: very small body
-        if body < 0.1 * (candle["high"] - candle["low"]):
-            signals["doji"] = True
+        # Bullish break and retest
+        if close > recent_high and next_close < close and next_close >= recent_high:
+            df.loc[i + 1, 'break_retest'] = 'bullish_retest'
 
-        # ✅ Break & Retest (price near recent high or low)
-        if len(df) >= 10:
-            prev_highs = df["high"].iloc[-10:-2]
-            prev_lows = df["low"].iloc[-10:-2]
-            recent_high = max(prev_highs)
-            recent_low = min(prev_lows)
-            current_price = candle["close"]
+        # Bearish break and retest
+        elif close < recent_low and next_close > close and next_close <= recent_low:
+            df.loc[i + 1, 'break_retest'] = 'bearish_retest'
+    return df
 
-            if abs(current_price - recent_high) / recent_high < 0.01:
-                signals["break_retest"] = True
-            elif abs(current_price - recent_low) / recent_low < 0.01:
-                signals["break_retest"] = True
+def detect_trend_structure(df):
+    """
+    Trend approximation using EMA 20 vs EMA 50
+    """
+    df['trend'] = np.where(df['ema_20'] > df['ema_50'], 'uptrend', 'downtrend')
+    return df
 
-        # ✅ Trend Structure: Higher high & higher low
-        if df["high"].iloc[-1] > df["high"].iloc[-5] and df["low"].iloc[-1] > df["low"].iloc[-5]:
-            signals["trend_support"] = True
-
-        return signals
-    except Exception as e:
-        print(f"❌ Price Action Detection error: {e}")
-        return {
-            "pin_bar": False,
-            "doji": False,
-            "break_retest": False,
-            "trend_support": False,
-        }
+def analyze_indicators(df):
+    df = calculate_macd_rsi_bbands(df)
+    df = detect_price_action(df)
+    df = detect_break_retest(df)
+    df = detect_trend_structure(df)
+    return df
