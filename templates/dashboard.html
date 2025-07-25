@@ -23,21 +23,26 @@
         .container {
             padding: 30px;
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-            gap: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
+            gap: 25px;
         }
         .card {
             background-color: #222;
             border: 1px solid #333;
             border-radius: 10px;
             padding: 20px;
-            white-space: pre-line;
             box-shadow: 0 0 12px rgba(0,255,204,0.2);
             transition: transform 0.3s;
         }
         .card:hover {
             transform: scale(1.02);
             box-shadow: 0 0 16px rgba(0,255,204,0.4);
+        }
+        .tv-chart {
+            margin-top: 15px;
+            border-radius: 8px;
+            overflow: hidden;
+            height: 350px;
         }
         .footer {
             text-align: center;
@@ -52,7 +57,20 @@
     <header>📊 AI Trading Insights Dashboard</header>
     <div class="container">
         {% for insight in market_insights %}
-            <div class="card">{{ insight }}</div>
+            <div class="card">
+                {{ insight.text }}
+                <div class="tv-chart">
+                    <iframe
+                        src="https://s.tradingview.com/widgetembed/?frameElementId=tradingview_bf5b2&symbol={{ insight.symbol|replace('/', '') }}&interval=60&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=rgba(0,0,0,1)&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidevolume=0&allow_symbol_change=true"
+                        width="100%"
+                        height="100%"
+                        frameborder="0"
+                        allowtransparency="true"
+                        scrolling="no"
+                        allowfullscreen>
+                    </iframe>
+                </div>
+            </div>
         {% endfor %}
     </div>
     <div class="footer">
