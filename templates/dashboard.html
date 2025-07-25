@@ -1,83 +1,110 @@
+<!-- templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <title>AI Trading Dashboard</title>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
     <style>
         body {
-            font-family: 'Fira Code', monospace;
-            background: #111;
+            font-family: 'Segoe UI', sans-serif;
+            background-color: #111;
             color: #eee;
-            margin: 0;
-            padding: 0;
-        }
-        header {
-            background-color: #1f1f1f;
             padding: 20px;
-            text-align: center;
-            font-size: 28px;
-            color: #00ffcc;
-            border-bottom: 2px solid #00ffcc;
         }
         .container {
-            padding: 30px;
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
-            gap: 25px;
+            max-width: 1100px;
+            margin: auto;
         }
-        .card {
-            background-color: #222;
-            border: 1px solid #333;
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 0 12px rgba(0,255,204,0.2);
-            transition: transform 0.3s;
+        h1 {
+            text-align: center;
+            color: #0ff;
         }
-        .card:hover {
-            transform: scale(1.02);
-            box-shadow: 0 0 16px rgba(0,255,204,0.4);
+        .market-section {
+            margin-bottom: 60px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 40px;
         }
         .tv-chart {
-            margin-top: 15px;
-            border-radius: 8px;
-            overflow: hidden;
-            height: 350px;
+            height: 500px;
+            margin-bottom: 20px;
         }
-        .footer {
-            text-align: center;
-            color: #555;
-            font-size: 13px;
+        .insight {
+            background: #222;
             padding: 15px;
-            border-top: 1px solid #222;
+            border-radius: 8px;
+            font-size: 14px;
+            white-space: pre-wrap;
+            line-height: 1.6;
+        }
+        .logout {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #f33;
+            color: white;
+            padding: 10px 15px;
+            text-decoration: none;
+            border-radius: 6px;
+        }
+        .add-user-form {
+            background: #1c1c1c;
+            padding: 20px;
+            margin-top: 40px;
+            border-radius: 10px;
+        }
+        .add-user-form input {
+            padding: 10px;
+            margin: 10px 0;
+            width: 100%;
+            background: #000;
+            border: 1px solid #555;
+            color: #fff;
+        }
+        .add-user-form button {
+            background: #0f0;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+            width: 100%;
         }
     </style>
 </head>
 <body>
-    <header>📊 AI Trading Insights Dashboard</header>
+    <a href="/logout" class="logout">Logout</a>
+
     <div class="container">
+        <h1>📊 AI Trading Insights</h1>
+
         {% for insight in market_insights %}
-            <div class="card">
-                <h2 style="color:#00ffaa; font-size: 20px;">{{ insight.symbol }}</h2>
-                <pre style="white-space: pre-wrap; color: #00ffcc; font-size: 14px;">
-{{ insight.text }}
-                </pre>
-                <div class="tv-chart">
-                    <iframe
-                        src="https://s.tradingview.com/widgetembed/?frameElementId=tv_{{ loop.index }}&symbol={{ insight.symbol|replace('/', '') }}&interval=60&hidesidetoolbar=1&symboledit=1&saveimage=1&toolbarbg=rgba(0,0,0,1)&studies=%5B%5D&theme=dark&style=1&timezone=Etc%2FUTC&withdateranges=1&hidevolume=0&allow_symbol_change=true"
-                        width="100%"
-                        height="100%"
-                        frameborder="0"
-                        allowtransparency="true"
-                        scrolling="no"
-                        allowfullscreen>
-                    </iframe>
+            {% if insight.symbol %}
+                <div class="market-section">
+                    <!-- TradingView Chart -->
+                    <div class="tv-chart">
+                        <iframe
+                            src="https://s.tradingview.com/embed-widget/mini-symbol-overview/?locale=en#%7B%22symbol%22%3A%22{{ insight.symbol }}%22%2C%22width%22%3A%22100%25%22%2C%22height%22%3A500%2C%22locale%22%3A%22en%22%2C%22dateRange%22%3A%22auto%22%2C%22colorTheme%22%3A%22dark%22%7D"
+                            width="100%" height="500" frameborder="0" allowtransparency="true" scrolling="no">
+                        </iframe>
+                    </div>
+
+                    <!-- Analysis -->
+                    <div class="insight">
+                        <strong>Current Price:</strong> {{ insight.current_price }}<br><br>
+                        {{ insight.signal }}
+                    </div>
                 </div>
-            </div>
+            {% endif %}
         {% endfor %}
-    </div>
-    <div class="footer">
-        Powered by AI | Confidence-based Signals Only | Updated {{ now() }}
+
+        {% if session.user == 'admin' %}
+        <div class="add-user-form">
+            <h2>Add New User</h2>
+            <form action="/add_user" method="POST">
+                <input type="text" name="username" placeholder="New Username" required>
+                <input type="password" name="password" placeholder="New Password" required>
+                <button type="submit">Add User</button>
+            </form>
+        </div>
+        {% endif %}
     </div>
 </body>
 </html>
